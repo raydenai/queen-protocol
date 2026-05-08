@@ -1,4 +1,4 @@
-# Queen Protocol v2.4.0
+# Queen Protocol v2.5.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2199,6 +2199,7 @@ These remain enforced regardless of mode — security + correctness invariants:
 - **§10** (hard rules — never push to main, never commit without approval, never include secrets in prompts)
 - **§18.0** (single-host deployment scope — max-mode still single-host; do not deploy across machines)
 - **§2.6.5 CONVERGE checkpoint** when production paths are touched (max-mode does NOT skip this; security review of payment/auth/migration changes always blocks LAND)
+- **§25.11 cross-shard invariant audit** when ≥2 shards share data-pattern tags (cache/idempotency/lock/auth/etc.) — catches the cross-shard composition bugs that single-shard review misses
 
 ### 25.5 Per-shard escape — `priority: critical` forces default mode
 
@@ -2298,9 +2299,57 @@ If you find yourself reaching for max-mode on a payment, auth, migration, or aut
 
 The protocol enforces this via §25.5 auto-promotion. But the operator's own discipline matters more than any auto-rule — if a shard touches production state and you're tempted to override the auto-promotion, the answer is no.
 
+### 25.11 Cross-shard invariant audit (v2.5 — Colony 10 calibration)
+
+When ≥2 shards independently add the same kind of state (caches, locks, validation guards, multi-tenant scoping), each ant only sees its own file scope. A class of bug is invisible to single-shard review:
+
+- Both shards add an idempotency cache keyed only by `idempotency_key`. Each ant is correct *within its file*. Cross-tenant leak (Tenant A replays Tenant B's cached id) only emerges when reading both diffs together.
+
+**Real example (Colony 10, 2026-05-08):**
+
+- s01 added `_idempotency_cache` to `routes/projects.py`
+- s02 added `_site_idempotency_cache` to `routes/sites.py`
+- Both keyed by `idempotency_key` only — neither ant flagged the gap because each was scoped to one file
+- Queen-side dual review (Codex + Kimi) caught both. Without dual review, two cross-tenant safety bugs would have shipped.
+
+**Rule**: when the colony plan declares ≥2 shards with overlapping data-pattern tags, queen MUST run a queen-side invariant audit before LAND.
+
+**Tags that trigger audit** (per-shard `tags` field):
+
+- `cache`, `idempotency`, `lock`, `auth`, `rate-limit`, `validation-guard`, `multi-tenant-key`
+
+**Audit pattern (rg-based queries against the converged diff):**
+
+```bash
+# All idempotency caches must be keyed by (workspace_id, key), not key alone
+rg "idempotency_cache.*\[(\w+\.idempotency_key|str)\]" -t py
+
+# Async read-check-write on shared dicts must be guarded by an asyncio.Lock
+rg "_cache\[.*\] = " -t py | rg -v "Lock|locked|async with"
+
+# Workspace_id in route handlers must come from query (defense-in-depth match)
+rg "request\.workspace_id" apps/api/src/routes/ | rg -v "if request\.workspace_id !="
+```
+
+Each tag has a small set of canonical queries, codified in `~/.claude/state/colony/schemas/cross-shard-audits.json`. If any query returns hits, queen blocks LAND with `phase: CONVERGE_AUDIT_FAILED` and either dispatches a fix shard or asks the operator to acknowledge.
+
+**What this catches that §3 + §2.6 do not:**
+
+- §3 validates each report's truthfulness against its own scope
+- §2.6 validates files_allowed boundaries
+- Neither sees the cross-shard composition
+- This audit closes the gap between "each shard correct" and "the union is correct"
+
+**Cost:** ~30 seconds for the rg sweep. Negligible vs the cost of shipping a cross-tenant safety bug.
+
+**Fail signal:** queen logs `CROSS_SHARD_INVARIANT_FAIL` event in telemetry with matching tag + queries + offending files. Aggregate stats expose how often this rule fires per tag (high signal = colony plans need tighter scoping; low signal = audit is over-engineered for that pattern and can be relaxed).
+
+**Interaction with §25.4 hard floors:** in max-mode this audit IS a hard floor — single review at converge doesn't catch cross-shard composition bugs. Default mode benefits too, but the dual-review default already partially compensates.
+
 ---
 
 **The queen who follows this protocol ships verified work fast.**
 **The queen who skips steps either ships broken work or ships slowly.**
 **The protocol exists so the queen doesn't have to remember which.**
 **Max-Mode exists so the queen can ship the safe stuff at lightning speed.**
+**Cross-shard invariant audits exist because the union of correct ants is not always a correct colony.**

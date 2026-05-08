@@ -1,6 +1,21 @@
 # Changelog
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
+
+## v2.5.0 — 2026-05-08
+
+**Cross-shard invariant audit (Colony 10 calibration).**
+
+- **§25.11 NEW — Cross-shard invariant audit.** When ≥2 shards add the same kind of state in disjoint files (caches, locks, validation guards, multi-tenant scoping), each ant only sees its own file scope. A class of bug is invisible to single-shard review — the bug only emerges from reading the union of diffs.
+- **Real evidence (Colony 10, 2026-05-08):** s01 added `_idempotency_cache` to `routes/projects.py`; s02 added `_site_idempotency_cache` to `routes/sites.py`. Both keyed by `idempotency_key` only — Tenant A could replay Tenant B's cached id. Each ant was correct within its file scope. Queen-side dual review (Codex + Kimi) caught both. Without dual review, two cross-tenant safety bugs would have shipped.
+- **Mechanism:** when colony plan declares ≥2 shards with overlapping data-pattern tags (`cache`, `idempotency`, `lock`, `auth`, `rate-limit`, `validation-guard`, `multi-tenant-key`), queen runs an rg-based invariant sweep against the converged diff before LAND. Canonical queries codified in `~/.claude/state/colony/schemas/cross-shard-audits.json`. Hits → `phase: CONVERGE_AUDIT_FAILED` → fix shard or operator ack.
+- **§25.4 hard floors updated** — cross-shard audit added to the never-disabled list. In max-mode this is critical: single review at converge doesn't catch cross-shard composition bugs; the cheap rg sweep does.
+- **Cost:** ~30s per colony. The cross-tenant safety bugs it catches: priceless.
+
+**Why minor bump (not patch):** §25.11 is a new enforced control with a real failure mode and a deterministic mechanism — not a calibration tweak.
+
+**Self-rated:** ~8.7/10. Up from 8.5 because the rule is grounded in a real bug class found in real production code that would have shipped without it.
+
 ## v2.4.0 — 2026-05-08
 
 **Minor bump.** Two real-evidence patches:
