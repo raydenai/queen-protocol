@@ -1,6 +1,16 @@
 # Changelog
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
+## v2.4.0 — 2026-05-08
+
+**Minor bump.** Two real-evidence patches:
+
+- **§22.10 corrected** — meshboard's `colony_ops_producer` is a `fab team.broadcast` wrapper with a hardcoded node allowlist (`eagle`, `titan`, `nova`, `poseidon`, `dr_umit`), not a generic JSONL tailer. v2.3.2 was wrong. **Real integration ships in this release**: [`scripts/colony-meshboard-adapter.sh`](scripts/colony-meshboard-adapter.sh) — watches `~/.claude/state/colony/*/log/telemetry.jsonl`, maps shard ids to meshboard's bucket allowlist, POSTs events to `/api/colony/message`. Verified working: 71+ events flowed during Colony 7 dispatch.
+- **§2.7 Tier-2 NEW — Auto-grep wiring gate.** Every new `run_*` agent factory function added in a colony's diff must have ≥1 caller outside its own file. Zero callers → DEAD CODE → wire-or-delete shard required before LAND. Closes the audit-found dead-code class (Colony 4 caught `run_ab_test_ideator` had zero callers).
+
+**Why minor bump (not patch):** §22.10 was demonstrably wrong, and §2.7 is a new enforced control, not a calibration tweak. The README `Current version` line bumps to v2.4.
+
+**Self-rated:** ~8.5/10. Same as v2.3.4. Rating doesn't move because no new architectural surface, just two findings landed honestly with a shipping adapter.
 
 ## v2.3.4 — 2026-05-08
 
