@@ -1,0 +1,41 @@
+{
+  "schema_version": "2.3",
+  "colony_id": "2026-05-08-cro-abtest-audit",
+  "duration_minutes": 124,
+  "duration_seconds": 7450,
+  "shards_total": 2,
+  "shards_merged": 2,
+  "shards_failed": 0,
+  "shards_abandoned": 0,
+  "retry_count_total": 0,
+  "report_rejections": 0,
+  "gate_rerun_disagreements": 0,
+  "semantic_conflicts": 0,
+  "textual_conflicts": 0,
+  "kimi_dispatches": 0,
+  "codex_dispatches": 0,
+  "agent_dispatches": 2,
+  "claude_ant_dispatches": 0,
+  "parallelism": "true_parallel",
+  "parallel_dispatch_note": "Two Agent calls in single message → both ran concurrently; queen waited for both before validation pass",
+  "user_interventions": 0,
+  "user_interventions_note": "PLAN checkpoint skipped per §2.2.5 default — no critical-priority shards, no production-path globs, <5 shards",
+  "projected_cost_usd": 0.10,
+  "actual_cost_usd_estimate": 0.20,
+  "cost_drift_pct": 100,
+  "cost_drift_note": "agent:general-purpose still costs ~2× §17 projection (~$0.10/shard, not $0.05). Confirmed across 3 dispatches now (1 in colony 1, 2 here).",
+  "slis": {
+    "shard_merge_no_retry_rate": 1.0,
+    "shard_within_deadline_rate": 1.0,
+    "gate_rerun_pass_rate": 1.0,
+    "report_validation_pass_rate": 1.0,
+    "colony_no_user_intervention_rate": 1.0
+  },
+  "v2_4_calibration_findings": [
+    "§17 cost: agent:general-purpose actual ~$0.10, projection $0.05 — bump to $0.10–0.15",
+    "§3.1 step 4: skill-grep gate cannot run on read-only audit shards (no diff). Add audit-shard exception or alternate skill-proof.",
+    "§3 schema: audit_findings is a useful diagnostic-shard variant. Standardize alongside §3.3 reviewer-ant variant in v2.4.",
+    "Audit-shard default deadline_minutes 30 (was 15 in colony 1) — works.",
+    "Parallel agent dispatch: queen-side wait + validate is clean; no race conditions observed."
+  ]
+}

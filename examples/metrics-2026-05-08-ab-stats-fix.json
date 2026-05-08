@@ -1,0 +1,43 @@
+{
+  "schema_version": "2.3.1",
+  "colony_id": "2026-05-08-ab-stats-fix",
+  "duration_minutes": 5,
+  "duration_seconds": 317,
+  "shards_total": 2,
+  "shards_merged": 2,
+  "shards_failed": 0,
+  "retry_count_total": 0,
+  "report_rejections": 0,
+  "gate_rerun_disagreements": 0,
+  "semantic_conflicts": 0,
+  "textual_conflicts": 0,
+  "queen_direct_dispatches": 1,
+  "agent_dispatches": 1,
+  "kimi_dispatches": 0,
+  "codex_dispatches": 0,
+  "claude_ant_dispatches": 0,
+  "kind": "first_write_shard_colony",
+  "user_interventions": 0,
+  "user_interventions_note": "PLAN checkpoint default-skipped — no production paths, no critical priority, only 2 shards",
+  "projected_cost_usd": 0.10,
+  "actual_cost_usd_estimate": 0.05,
+  "cost_drift_pct": -50,
+  "cost_drift_note": "shard 2 used only 54k tokens (1m52s) — much faster than read-only audits because scope was bounded write. v2.4 calibrate write-shard agent backend separately from audit-shard.",
+  "files_changed_total": 2,
+  "lines_added_total": 233,
+  "tests_added_count": 13,
+  "v2_4_calibration_findings": [
+    "§17 cost: write-shard agent:general-purpose ~$0.05 (faster, bounded scope) vs audit-shard ~$0.10 (file-reading-heavy). Split into two rows.",
+    "§4.2 routing: queen-direct backend with estimated_lines<30 + obvious complexity worked clean — confirms the rule 1 cutoff.",
+    "DAG depends_on resolution worked — shard 2 dispatched only after shard 1 was MERGED.",
+    "First write-shard colony validates the §2.6 converge path (files_allowed gate, diff truth, queen-rerun gates) end-to-end without integration worktree (small enough not to need it).",
+    "Pytest fixtures and parametrize handled cleanly by agent ant — no need for specialist for stats-test work."
+  ],
+  "slis": {
+    "shard_merge_no_retry_rate": 1.0,
+    "shard_within_deadline_rate": 1.0,
+    "gate_rerun_pass_rate": 1.0,
+    "report_validation_pass_rate": 1.0,
+    "colony_no_user_intervention_rate": 1.0
+  }
+}
