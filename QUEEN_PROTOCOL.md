@@ -1,4 +1,4 @@
-# Queen Protocol v2.3.2
+# Queen Protocol v2.3.3
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -1908,7 +1908,22 @@ Honesty is the upgrade. v2.2 claimed 25 sections of working architecture; v2.3 a
 
 Remaining gap: **runtime kernel `~/.claude/scripts/colony.sh` doesn't exist yet.** The protocol describes the engine; v3 builds it. Until then, queen hand-stitches `meshterm` + `kimi-task.sh` + `codex-task.sh` per §22 cheat sheet — workable but error-prone.
 
-### v2.3.2 (this doc) — companion-stack integration
+### v2.3.3 (this doc) — Max-Mode profile (DEFAULT)
+
+**Lightning-speed shipping mode is now the default.** Adds a `plan.mode` field that defaults to `"max-speed"` when omitted; flips throughput-favoring defaults across the protocol while preserving the security + correctness floor.
+
+- **§25 NEW** — Max-Mode profile: 24-shard concurrency cap, kimi-isolated default backend, sample-rate gate-rerun, single-review (vs dual), auto-spawn honeycomb broker for 3+ ants on shared types, sub-queen at 15+ shards, 30s heartbeat, async telemetry.
+- **Hard floors preserved**: §3.1 steps 1–3 (parse, schema, diff truth), §2.6 step 2 (files_allowed gate), §3.4 (semantic injection), §19 (security model), §10 (hard rules), §18.0 (single-host scope) — never disabled in max-mode.
+- **Per-shard escape**: shards with `priority: critical` or production-path tags fall back to default-mode rules even inside a max-speed colony.
+
+**Realistic speedup target** (to be calibrated from real metrics): 2.7×–7× wall-clock vs default mode for write-heavy refactor sweeps. Audit colonies retain default rigor (read-only audits are already cheap; no need to strip verification).
+
+**When max-mode wins**: refactor sweeps, test backfill, doc updates, codemods, greenfield scaffolding, multi-file disjoint feature work.
+**When max-mode is dangerous**: migrations, payment flows, auth, anything `priority: critical` or in production-path globs — protocol force-falls-back to default mode for those shards.
+
+**Self-rated:** ~8/10 (same as v2.3.1/v2.3.2). Rating doesn't move because no new architectural enforcement; max-mode is a performance profile, not a safety addition. Real validation comes from the first max-mode colony on a real ConvertZap refactor.
+
+### v2.3.2 — companion-stack integration
 
 Documents the [mesh-trio](https://github.com/umitkacar) (`meshterm` + `claude-mesh` + `meshboard`) as canonical companion infrastructure. Retires partially-obsolete "v3 deferred" claims that the upstream solved.
 
@@ -1981,6 +1996,168 @@ Confidence increment is small but earned: protocol now has live data backing its
 
 ---
 
+## 25. Max-Mode profile (v2.3.3 — lightning-speed shipping)
+
+A `plan.mode: "max-speed"` flag flips throughput-favoring defaults across the protocol. Designed for the answer to "I want to build my app faster than ever." Trades exhaustive single-shard verification for **24-way parallelism + lighter gates**, while preserving the security + correctness floor.
+
+> **Use max-mode for:** refactor sweeps, test backfill, doc updates, codemods, greenfield scaffolding, multi-file disjoint feature work.
+> **Do NOT use max-mode for:** migrations, payment flows, auth, anything tagged `priority: critical`. Protocol auto-forces default-mode for those shards even inside a max-speed colony.
+
+### 25.1 Activation — max-speed is the default mode in v2.3.3
+
+**`mode: "max-speed"` is the default** when `plan.json` does not specify a `mode` field. To run a colony in default-mode (full-rigor), explicitly set `mode: "default"`. This reversal makes lightning-speed the path of least resistance and forces explicit opt-in to the slower exhaustive-verification path.
+
+```json
+{
+  "schema_version": "2.3.3",
+  "colony_id": "...",
+  "mode": "max-speed",   // OPTIONAL — this is now the default; omit for max-speed
+  "max_speed_overrides": {
+    "concurrency_cap": 24,
+    "gate_rerun_sample_rate": 3,
+    "single_review": true,
+    "skip_checkpoints_unless_prod": true,
+    "default_backend": "kimi-isolated",
+    "honeycomb_auto_spawn": true,
+    "subqueen_threshold": 15,
+    "heartbeat_interval_seconds": 30
+  },
+  "shards": [...]
+}
+```
+
+All `max_speed_overrides` keys are optional; omitted keys take the v2.3.3 defaults shown.
+
+**To explicitly opt OUT and run full-rigor default-mode:**
+
+```json
+{
+  "schema_version": "2.3.3",
+  "colony_id": "...",
+  "mode": "default",   // explicit opt-out from max-mode
+  "shards": [...]
+}
+```
+
+**Auto-promotion to default-mode still applies per-shard** even when colony-mode is `max-speed` (§25.5): shards touching production paths fall back to default-mode rules regardless. The default-flip only changes which mode is the *colony-wide baseline*; per-shard escapes are unchanged.
+
+**Operator note:** because max-speed is now default, **the protocol assumes you want lightning-speed unless you say otherwise**. Audit colonies, refactor sweeps, test backfill, scaffolding — all run max-speed by default. Migration colonies, payment-flow colonies, auth changes — set `mode: "default"` explicitly OR rely on per-shard auto-promotion.
+
+### 25.2 What flips ON in max-mode
+
+| Setting | Default | Max-Mode | Why |
+|---|---|---|---|
+| **Concurrency cap (§5)** | 6–12 parallel write-shards | **24** | Conflict surface = 0 invariant still required, but the conservative cap was leaving throughput on the table |
+| **Default backend (§4.2 rule 10)** | `claude-ant` | **`kimi-isolated`** | ~10× cheaper per shard, ~10× more concurrent within daily caps |
+| **Sub-queen auto-engage (§14.2)** | ≥30 shards | **≥15 shards** | Earlier hierarchical decomposition; top queen amortizes coordination cost sooner |
+| **Honeycomb broker (§13)** | Manual opt-in | **Auto-spawn when 3+ shards share a `files_allowed` types path** | Eliminates senior-ant serialization in 80% of cases |
+| **Heartbeat interval (§21.2)** | 60s | **30s** | Faster TIMEOUT detection → faster reaper recovery |
+| **Telemetry writes (§8.2)** | Atomic per-event (`mv` from `.tmp`) | **Buffered, flushed at phase transitions** (PLAN→DISPATCH→WATCH→CONVERGE→VERIFY→LAND) | Reduces filesystem-sync overhead; durability still guaranteed at phase boundaries |
+
+### 25.3 What flips OFF in max-mode (default-skip)
+
+| Skip | Default | Max-Mode | Speed gain |
+|---|---|---|---|
+| **§2.2.5 PLAN checkpoint** | Required for `priority: critical` OR >10 shards OR production-path globs | **Skipped unless production-path glob detected.** Critical shards still trigger it. | ~5 min/colony |
+| **§3.1 step 5 gate re-run** | Queen re-runs **every** gate from `report.json` | **Sample-rate**: queen re-runs `1 in N` gates probabilistically (`gate_rerun_sample_rate`, default N=3). Sampling is per-colony deterministic via `idempotency_key` so repeated runs catch the same lies. | 5–10 min on multi-shard colonies |
+| **§2.7 Tier-2 dual review** | `kimi:review` AND `codex:review` parallel single-message | **Single review** (alternates kimi/codex per colony based on colony-id hash). | ~3 min/colony |
+| **§9.1 skill-grep verification** | Required on write shards | **Accept `skills_loaded` as advisory always** (matches §3.1 audit-shard exception, extended to write shards in max-mode) | ~30s/shard |
+| **Tournament/branching (§12)** | Available on tag | **Hard-disabled** unless individual shard sets `mode: "default"` | Cost saving more than speed |
+
+### 25.4 Hard floors NEVER disabled in max-mode
+
+These remain enforced regardless of mode — security + correctness invariants:
+
+- **§3.1 steps 1–3** (parse, schema, diff truth check) — zero-cost, catch lies cheaply
+- **§2.6 step 2** (files_allowed gate) — preserves conflict-surface = 0 invariant
+- **§3.4** (semantic injection defenses — length caps, control-char strip, injection-pattern allowlist)
+- **§19** (security model — secrets boundary, worktree escape, supply chain)
+- **§10** (hard rules — never push to main, never commit without approval, never include secrets in prompts)
+- **§18.0** (single-host deployment scope — max-mode still single-host; do not deploy across machines)
+- **§2.6.5 CONVERGE checkpoint** when production paths are touched (max-mode does NOT skip this; security review of payment/auth/migration changes always blocks LAND)
+
+### 25.5 Per-shard escape — `priority: critical` forces default mode
+
+Inside a max-speed colony, individual shards can opt back into full-rigor verification:
+
+```json
+{
+  "id": "s05-stripe-webhook-fix",
+  "files_allowed": ["apps/api/src/routes/stripe_webhook.py"],
+  "priority": "critical",
+  "tags": ["payment", "production"]
+}
+```
+
+This shard runs with default-mode gates: full gate-rerun, dual review, files_allowed enforcement, skill-grep verification, PLAN checkpoint if applicable. The other shards in the colony still use max-mode defaults.
+
+The protocol auto-promotes a shard to default-mode when ANY of these are true:
+
+- `shard.priority == "critical"`
+- `shard.tags ∩ {"payment", "auth", "migration", "security-critical", "production"}` is non-empty
+- `shard.files_allowed` matches any production-path glob (`supabase/migrations/`, `apps/api/src/integrations/stripe*`, `apps/api/src/routes/stripe_webhook*`, `apps/dashboard/middleware.ts`, `apps/dashboard/app/dashboard/billing/**`, `.env.production*`, `.github/workflows/deploy*`)
+
+The production-path globs are configurable per-repo via `~/.claude/state/colony/schemas/production-paths.json`.
+
+### 25.6 Statistical claim — sample-rate gate-rerun
+
+With `gate_rerun_sample_rate: 3` (queen re-runs 1 in 3 gates), the catch-rate on gate-lies is:
+
+- Single-shard with k gates → catch rate `1 - (2/3)^k`
+- Typical 5-gate shard → **86.8% catch rate** vs 100% in default mode
+- Across a 10-shard colony, with 50 total gates, queen re-runs ~17 gates → effectively zero gate-lies survive (catch probability per liar approaches 100% since liars rarely lie consistently across exactly the un-sampled subset)
+
+Trade-off: ~13% of single-shard gate-lies in max-mode escape verification at converge. Compensation: post-LAND audit colonies (read-only, full-rigor) catch what sampling missed.
+
+### 25.7 Realistic speedup math
+
+For a 5-shard write-colony today (~30 min wall-clock total in default mode):
+
+| Phase | Default | Max-Mode | Saving |
+|---|---|---|---|
+| PLAN + checkpoint pause | 5 min | 1 min | -4 min |
+| Dispatch (sequential vs all-at-once) | 3 min | 1 min | -2 min |
+| Watch (parallel ants, 30s heartbeat) | 8 min | 5 min | -3 min |
+| Converge + gate re-run + dual review | 12 min | 3 min | -9 min |
+| Verify + LAND | 2 min | 1 min | -1 min |
+| **Total** | **30 min** | **~11 min** | **2.7× speedup** |
+
+For 10+ shard refactor sweeps with shared types (Honeycomb auto-spawn): **5–7× speedup** because senior-ant serialization disappears.
+
+For 20+ shard colonies (sub-queen auto-engage): the top queen's coordination cost is amortized across 3 sub-queens, each running 7-shard sub-colonies in parallel — **wall-clock often 8–10× faster** than a flat default-mode 20-shard colony.
+
+### 25.8 Worker-fleet sizing for max-mode
+
+To actually saturate the 24-shard concurrency cap, you need:
+
+- **Kimi daily cap headroom**: 24 dispatches × ~$0.05 = $1.20/colony in Kimi spend. Daily cap is 30 by default, so 1 max-mode colony plus normal dev work fits comfortably.
+- **Codex daily cap headroom**: ~$0.10–0.30 (single review only, alternating per colony).
+- **Disk space for worktrees**: 24 worktrees × ~50MB/repo = ~1.2GB; matches §8.4 disk-pressure circuit breaker (1GB free required).
+- **Tmux pane budget**: meshterm pane reuse helps; otherwise 24 fresh panes is normal for the user's existing 27+ pane layout.
+
+If your daily cap is below 24, the protocol auto-degrades gracefully: dispatches as many as caps allow, queues the rest with `phase: PAUSED_CAP` (§2.4 cap exhaustion handling).
+
+### 25.9 Telemetry tags max-mode events
+
+Every max-mode colony writes `"mode": "max-speed"` to `metrics.json` and `"max_mode": true` to every telemetry event. Aggregate stats can compare max-mode vs default-mode SLI distributions:
+
+```jsonl
+{"event": "DISPATCH", "shard_id": "s03", "mode": "max-speed", "backend": "kimi-isolated", "timestamp": "..."}
+{"event": "GATE_RERUN_SAMPLED", "shard_id": "s03", "mode": "max-speed", "sampled": true, "skipped": false, "timestamp": "..."}
+{"event": "GATE_RERUN_SKIPPED", "shard_id": "s05", "mode": "max-speed", "reason": "sample_rate=3", "timestamp": "..."}
+```
+
+After 5+ max-mode colonies, queen can compute the **real** speedup (vs claimed 2.7×–7×) and the **real** gate-lie escape rate (vs claimed 13% per single-shard) for v2.4 calibration.
+
+### 25.10 Hard rule — max-mode never on production paths
+
+If you find yourself reaching for max-mode on a payment, auth, migration, or auth shard: **stop**. Use default mode for that shard. Max-mode trades single-shard verification for throughput; for non-recoverable mistakes (payment leaks, RLS bypasses, schema drops), the trade is wrong.
+
+The protocol enforces this via §25.5 auto-promotion. But the operator's own discipline matters more than any auto-rule — if a shard touches production state and you're tempted to override the auto-promotion, the answer is no.
+
+---
+
 **The queen who follows this protocol ships verified work fast.**
 **The queen who skips steps either ships broken work or ships slowly.**
 **The protocol exists so the queen doesn't have to remember which.**
+**Max-Mode exists so the queen can ship the safe stuff at lightning speed.**

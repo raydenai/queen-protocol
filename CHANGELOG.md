@@ -2,6 +2,44 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.3.3 — 2026-05-08
+
+**Max-Mode profile (now DEFAULT) — lightning-speed shipping.** Adds `plan.mode: "max-speed"` as the default colony profile when no `mode` field is specified.
+
+- **§25 NEW** — Max-Mode profile section with full activation, override knobs, statistical claims, and per-shard escape semantics.
+- **§25.1** — `max-speed` is now the **default** when `mode` is omitted; explicit `mode: "default"` to opt back into full-rigor.
+- **§25.5** — Per-shard auto-promotion: `priority: critical` shards or shards touching production-path globs (`supabase/migrations/`, `stripe*`, `middleware.ts`, RLS, `.env.production*`) fall back to default-mode rules even inside max-speed colonies.
+
+**What flips ON in max-mode:**
+
+- Concurrency cap 6–12 → **24 parallel write-shards**
+- Default backend `claude-ant` → **`kimi-isolated`** (~10× cheaper, ~10× more concurrent)
+- Sub-queen auto-engage threshold 30 → **15 shards**
+- Honeycomb broker auto-spawns when 3+ shards share a types path
+- Heartbeat interval 60s → **30s**
+- Telemetry writes buffered, flushed at phase transitions
+
+**What flips OFF in max-mode:**
+
+- §2.2.5 PLAN checkpoint default-skip (unless production paths)
+- §3.1 step 5 gate-rerun: from "every gate" to **sample-rate (1 in N=3)**
+- §2.7 Tier-2 dual review → **single review** (alternates kimi/codex per colony hash)
+- §9.1 skill-grep verification: accept `skills_loaded` as advisory always
+- §12 tournament/branching disabled by default
+
+**Hard floors NEVER disabled (preserved in all modes):**
+
+- §3.1 steps 1–3 (parse, schema, diff truth)
+- §2.6 step 2 (files_allowed gate — conflict surface = 0)
+- §3.4 (semantic injection defenses)
+- §19 (security model — secrets boundary, worktree escape, supply chain)
+- §10 (hard rules)
+- §2.6.5 CONVERGE checkpoint when production paths touched
+
+**Realistic speedup target:** 2.7× for 5-shard write-colonies, 5–7× for refactor sweeps with shared types, 8–10× for 20+ shard colonies via sub-queen auto-engage. To be calibrated from real metrics in subsequent colonies.
+
+**Self-rated:** ~8/10 (same as v2.3.2). Rating doesn't move because architectural enforcement didn't change — max-mode is a performance profile flipping defaults, not a safety addition. Real validation comes from the first max-mode ConvertZap colony.
+
 ## v2.3.2 — 2026-05-08
 
 **Companion-stack integration release.** Documents the [mesh-trio](https://github.com/umitkacar) (`meshterm` + `claude-mesh` + `meshboard`) as canonical companion infrastructure. Retires partially-obsolete "v3 deferred" claims that the upstream solved.
