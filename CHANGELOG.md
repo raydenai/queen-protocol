@@ -2,6 +2,22 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.3.4 — 2026-05-08
+
+**Schema enforcement + first max-mode dogfood calibration.** Three patches landed after Colony 4 (`2026-05-08-mesh-trio-bootstrap-and-test-backfill`) — 5 shards, 113 tests, 2 real bugs found, 15 min wall-clock, ~2.0× speedup vs default-mode baseline.
+
+- **§3.1 Step 2 hardened** — explicit required-key allowlist, strict `status` enum (`DONE | FAILED | TIMEOUT` only), strict gate-object schema, reject-on-unknown-keys.
+- **§3.6 NEW pre-submit validator** — [`scripts/validate-report.py`](scripts/validate-report.py) ships in this repo. Ant prompts MUST include the validation step; queen runs the same script at converge. Closes the Colony 4 finding where 3 of 4 ants invented divergent report shapes (`"PASS"` not `"DONE"`, `pytest_result` not `gates`, etc.).
+- **§17.1 cost row split** — `agent:general-purpose (audit/diagnostic)` ~$0.10–0.15 vs `agent:general-purpose (write-shard)` ~$0.08–0.12. Calibrated from Colony 4's 4 parallel write ants.
+- **§25.7 speedup calibrated** — projection 2.7× / actual 2.0× on a single colony. Schema-divergence overhead + first-run setup cost explain the gap. Updated projection: 2.5–3.0× sustained with §3.6 validator + warm setup.
+
+**Real bugs surfaced by Colony 4 (would have shipped silently):**
+
+- `abandoned_cart`: `_send_sequence_email` passes `template_name="abandoned_cart_1|2|3"` to `ResendClient` but only one `templates/abandoned_cart.py` exists. Live `RESEND_API_KEY` → `ModuleNotFoundError`.
+- `conversion_auditor`: Layer 1/3/7 1.5× weighting + compliance→`BLOCK_PUBLISH` override are LLM-trusted, NOT server-enforced. Audit recommends server-side belt-and-suspenders in routes.
+
+**Self-rated:** ~8.5/10. Confidence increment is real because §3.6 closes the only consistent failure mode observed in dogfood.
+
 ## v2.3.3 — 2026-05-08
 
 **Max-Mode profile (now DEFAULT) — lightning-speed shipping.** Adds `plan.mode: "max-speed"` as the default colony profile when no `mode` field is specified.
