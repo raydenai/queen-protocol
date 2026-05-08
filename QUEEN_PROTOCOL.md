@@ -1,4 +1,4 @@
-# Queen Protocol v2.3.1
+# Queen Protocol v2.3.2
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -1424,13 +1424,13 @@ Runbooks are **mandatory before paging** — page the user with the runbook link
 
 §20.1–20.5 specify SLIs, SLOs, error budgets, burn-rate alerts, and runbooks **as design intent**, not enforced controls. Per the buzzword discount rule, an SLO without a computer that runs it is documentation. Be honest about what v2.3 actually does:
 
-| Capability | v2.3 state | v3 obligation |
+| Capability | v2.3.2 state | v3 obligation |
 |---|---|---|
 | `metrics.json` written at colony LAND | **ENFORCED** — §8.2 specifies the write | — |
 | SLI computation from N-day metrics window | **NOT WRITTEN** — no aggregation script exists | `colony slo compute` subcommand |
 | Error-budget burn-rate calculation | **NOT WRITTEN** | `colony slo budget` subcommand |
-| Dashboard / visualization | **NOT WRITTEN** — SessionStart claim is aspirational | `colony slo dashboard` HTML output |
-| Alerting on burn-rate / symptom thresholds | **NOT WIRED** — no alerting infra | hooks into `~/.claude/hooks/` |
+| Dashboard / visualization | **EXTERNAL via meshboard** (v2.3.2) — `pip install meshboard` + `colony_ops_producer` ingests `telemetry.jsonl`. WebSocket browser UI. See §22.10. | Native queen-side `colony slo dashboard` HTML still in scope as a fallback for headless deployments. |
+| Alerting on burn-rate / symptom thresholds | **EXTERNAL via meshboard** producers + WebSocket subscribers, OR `~/.claude/hooks/` for queen-internal triggers. | First-class alerting integration with claude-mesh INTERRUPT signals. |
 | Runbooks at `~/.claude/runbooks/` | **NOT AUTHORED** — paths cited but files don't exist yet | one runbook authored per SLO breach mode |
 
 **Operational consequence:** until v3 ships the computation infra, the §20 SLO targets are **hypotheses to test against accumulated `metrics.json` data**, not gates that block colony operation. Treat the section as a measurement plan to validate after 20+ colonies of real data — not as live controls.
@@ -1702,6 +1702,49 @@ colony run-scheduled nightly-test
 cat ~/.claude/state/colony/scheduled/nightly-test/last-run.json
 ```
 
+### 22.10 Companion stack — mesh-trio (v2.3.2)
+
+The protocol's "imaginary CLI" critique (Kimi v2 review) is **partially obsolete**. Three upstream packages by [@umitkacar](https://github.com/umitkacar) cover runtime gaps that v2.3.1 had deferred to v3:
+
+| Package | Role | Fits where in this protocol |
+|---|---|---|
+| [`meshterm`](https://github.com/umitkacar/meshterm) | iTerm2-compatible tmux automation (libtmux backend, remote SSH support) | Powers §22.2 claude-ant dispatch + §22.3 watch + §22.7 land flows. `pip install meshterm`. |
+| [`claude-mesh`](https://github.com/umitkacar/claude-mesh) | Cross-platform inter-session communication mesh. Five transports (iterm2 / ssh / redis / tmux / meshterm). Three signal layers: PASSIVE (notification) / ACTIVE (prompt injection) / INTERRUPT (Ctrl+C + message). | Replaces ad-hoc `meshterm send` for cross-host or signal-rich orchestration. CLI: `claude-mesh send/notify/interrupt/discover/inbox/monitor/status`. `pip install claude-mesh`. |
+| [`meshboard`](https://github.com/umitkacar/meshboard) | Real-time observation dashboard. Producers ingest from claude-mesh nodes + meshterm sessions + Claude Code Pre/PostToolUse hooks + custom ops sources. SQLite WAL event store. WebSocket fan-out + browser UI. | Replaces v2.3.1's "NOT WRITTEN dashboard" gap from §20.6. `pip install meshboard`. |
+
+**Bringing the trio into the queen colony:**
+
+```bash
+pip install meshboard meshterm claude-mesh
+
+# Web UI (default :8080); browser sees live colony state.
+meshboard serve --port 8080 &
+
+# ~/.config/meshboard/local.toml — wire colony telemetry.jsonl into the dashboard:
+[[producers]]
+kind = "colony_ops"
+source = "~/.claude/state/colony"
+tail = "log/telemetry.jsonl"
+
+# Now every queen-emitted event in §8.2 telemetry sink streams to the dashboard.
+# Add producers for meshterm + claude-mesh to surface ant pane state alongside.
+```
+
+**What this changes about the protocol's enforcement claims:**
+
+- **§20.6 dashboard row** — flipped from `NOT WRITTEN` to `EXTERNAL via meshboard`. The aggregation/computation layer (`colony slo compute` etc.) is still v3 work, but the visualization/alerting layer ships today.
+- **§22.3 watch loop** — gains push-based heartbeats. Subscribe to `claude-mesh` signals instead of polling `kimi-task.sh status` + filesystem heartbeat files. Lower latency, lower noise.
+- **§19.6 audit log** — meshboard's event store doubles as a queryable audit log; security events surfaced live in the dashboard rather than discoverable only via grep.
+- **§14.2 hierarchical / sub-queen** — claude-mesh's cross-host signaling becomes the substrate for top queen ↔ sub-queens when they live on different hosts.
+
+**What remains v3 (mesh-trio doesn't solve):**
+
+- The `colony.sh` runtime kernel itself (lock/plan/dispatch/converge as one CLI). Mesh-trio gives runtime *infrastructure*, not the queen-side state machine.
+- **Multi-host fencing** at resource level (Kleppmann §18.1). claude-mesh provides cross-host *signaling*, not cross-host *write coordination*. Distributed-lock service still needed.
+- Skill signature cache + drift detection (§19.3).
+
+**Operator caveat:** the trio is fresh — meshboard `v0.1.1 beta` (39+ tests), claude-mesh `v2.1.6 production-ready` (70+ tests), meshterm production. Treat dashboards as observability, not as control plane; queen state of record remains `~/.claude/state/colony/active.json` + `telemetry.jsonl`.
+
 ---
 
 ## 23. Glossary
@@ -1865,7 +1908,21 @@ Honesty is the upgrade. v2.2 claimed 25 sections of working architecture; v2.3 a
 
 Remaining gap: **runtime kernel `~/.claude/scripts/colony.sh` doesn't exist yet.** The protocol describes the engine; v3 builds it. Until then, queen hand-stitches `meshterm` + `kimi-task.sh` + `codex-task.sh` per §22 cheat sheet — workable but error-prone.
 
-### v2.3.1 (this doc) — first dogfood calibration
+### v2.3.2 (this doc) — companion-stack integration
+
+Documents the [mesh-trio](https://github.com/umitkacar) (`meshterm` + `claude-mesh` + `meshboard`) as canonical companion infrastructure. Retires partially-obsolete "v3 deferred" claims that the upstream solved.
+
+- **§22.10 NEW** — Companion stack section with installation + `colony_ops_producer` integration pattern for streaming `telemetry.jsonl` into the meshboard dashboard.
+- **§20.6 measurement-infra table** — dashboard + alerting rows flipped from "NOT WRITTEN" / "NOT WIRED" to "EXTERNAL via meshboard" with config snippet.
+- **§22.3 watch loop** — push-based heartbeats via claude-mesh signal subscription noted as the upgrade path from polling.
+- **§14.2 sub-queens** — claude-mesh becomes the cross-host signaling substrate for top-queen ↔ sub-queens.
+- **Future v3 candidates list** (§24) — dashboard / cross-session-signaling rows removed (mesh-trio shipped them); distributed-lock multi-host fencing + colony.sh runtime kernel + skill signature cache remain.
+
+**No new architectural work** — just honest acknowledgment that upstream solved problems v2.3.1 deferred. The mesh-trio is observability + signaling infrastructure; it does not replace the queen-side state machine (lock + plan.json + active.json + report validation), which the protocol still owns end-to-end.
+
+**Self-rated:** ~8/10. Same as v2.3.1; the rating doesn't move because architectural enforcement didn't change — only the integration story.
+
+### v2.3.1 — first dogfood calibration
 
 Three patches landed after the protocol's first two real-execution colonies (`2026-05-08-deep-research`, `2026-05-08-cro-abtest-audit`). All findings derived from actual `metrics.json` + telemetry data, not speculation.
 
@@ -1897,15 +1954,23 @@ Confidence increment is small but earned: protocol now has live data backing its
 
 ### Future v3 candidates (deferred)
 
-- **Runtime kernel `colony.sh`** with subcommands `lock/plan/route/dispatch/watch/converge/land/gc/score-tournament/spawn-sub` — kills the "imaginary CLI" critique entirely.
+**Retired in v2.3.2** (mesh-trio shipped them upstream — see §22.10):
+
+- ~~Dashboard / visualization~~ → `meshboard` ships this with WebSocket browser UI + producer pattern
+- ~~Cross-session signaling layer~~ → `claude-mesh` ships 5 transports + 3 signal layers (PASSIVE/ACTIVE/INTERRUPT)
+
+**Still v3:**
+
+- **Runtime kernel `colony.sh`** with subcommands `lock/plan/route/dispatch/watch/converge/land/gc/score-tournament/spawn-sub` — kills the "imaginary CLI" critique entirely. Mesh-trio gives infrastructure; this is the queen-side state-machine binding.
 - **Auto-DAG resolver** — automatic dispatch promotion as deps reach MERGED, no manual re-check after Watch iterations.
 - **Live-pane-aware dispatcher** — prefer warm meshterm sessions over fresh worktrees when cwd + git head match.
-- **SessionStart 7-day rolling stats** — surface SLI/SLO/cost trends from accumulated `metrics.json` files.
+- **SessionStart 7-day rolling stats** — surface SLI/SLO/cost trends from accumulated `metrics.json` files. Could pipe through meshboard producer once `colony slo compute` exists.
 - **Honeycomb broker daemon** — actual implementation of the §13 sentinel-publication protocol with file-watcher infra.
 - **Scheduled colony scheduler** — launchd / cron / GHA wrappers per §16.3.
 - **Specialist registry CRUD CLI** — `colony specialist add|edit|list|test <role>` for authoring without manual file editing.
 - **Cost ledger** — per-Anthropic-account / per-Kimi-account / per-Codex-account spend tracking with monthly summaries.
-- **Multi-host coordination** — when colonies span machines (e.g., Mac queen + Linux worker host), distributed lock service.
+- **Multi-host *fencing*** — claude-mesh ships cross-host signaling but resource-level Kleppmann fencing (write-coordination across machines) still needs a distributed-lock service.
+- **Skill signature cache + drift detection** (§19.3) — supply-chain hardening for the skill bundle.
 - **Choreography mode** for highly-decoupled non-coding work — separate `Worker Protocol` companion.
 
 ### Credits

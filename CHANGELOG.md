@@ -2,6 +2,20 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.3.2 — 2026-05-08
+
+**Companion-stack integration release.** Documents the [mesh-trio](https://github.com/umitkacar) (`meshterm` + `claude-mesh` + `meshboard`) as canonical companion infrastructure. Retires partially-obsolete "v3 deferred" claims that the upstream solved.
+
+- **§22.10 NEW** — Companion stack section with installation + `colony_ops_producer` integration pattern for streaming `telemetry.jsonl` into the meshboard dashboard.
+- **§20.6 measurement-infra table** — dashboard + alerting rows flipped from "NOT WRITTEN" / "NOT WIRED" to **"EXTERNAL via meshboard"** with config snippet.
+- **§22.3 watch loop** — push-based heartbeats via claude-mesh signal subscription noted as the upgrade path from polling.
+- **§14.2 sub-queens** — claude-mesh becomes the cross-host signaling substrate for top-queen ↔ sub-queens.
+- **§24 v3 candidates** — dashboard + cross-session-signaling rows retired (mesh-trio shipped them); colony.sh runtime kernel + multi-host fencing + skill signature cache remain.
+
+**No new architectural work** — just honest acknowledgment that upstream solved problems v2.3.1 deferred. The mesh-trio is observability + signaling infrastructure; it does not replace the queen-side state machine (lock + plan.json + active.json + report validation), which the protocol still owns end-to-end.
+
+**Self-rated:** ~8/10. Same as v2.3.1; rating doesn't move because architectural enforcement didn't change — only the integration story.
+
 ## v2.3.1 — 2026-05-08
 
 **Calibration release.** Three patches landed after the protocol's first three real-execution colonies:

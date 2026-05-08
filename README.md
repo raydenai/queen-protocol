@@ -4,8 +4,8 @@
 
 The protocol governs dispatch, convergence, verification, and landing of parallel coding work across 6–12 concurrent shards on a single host. It is reviewed and battle-tested through three real-execution colonies and three rounds of multi-model adversarial review (Codex, Kimi, and a 3-model Perplexity council of GPT-5.5 / Claude Opus 4.7 / Gemini 3.1 Pro).
 
-**Current version:** v2.3.1 (calibrated from real metrics).
-**Status:** single-host, single-queen production-ish. Multi-host coordination is v3 territory.
+**Current version:** v2.3.2 (mesh-trio companion-stack integration).
+**Status:** single-host, single-queen production-ish. Cross-host signaling now via [`claude-mesh`](https://github.com/umitkacar/claude-mesh); multi-host fencing (resource-level Kleppmann) remains v3.
 
 ---
 
@@ -100,8 +100,18 @@ See [`examples/`](./examples/) for the actual metrics.json from each colony.
 3. **Set up state directories**: `mkdir -p ~/.claude/state/colony/{schemas,scheduled}`. Prerequisite scripts:
    - [`kimi-task.sh`](https://github.com/raydenai/kimi-task-sh) (or equivalent Kimi background-task wrapper)
    - [`codex-task.sh`](https://github.com/raydenai/codex-task-sh) (or equivalent Codex sidecar wrapper)
-   - [`meshterm`](https://pypi.org/project/meshterm/) (programmatic tmux control)
-4. **Acquire lock + run a small audit colony first** before any write-shard colonies — proves the cycle works in your environment. Pattern in §22.1–22.7.
+4. **Install the mesh-trio companion stack** for visible workers + dashboard (see §22.10):
+
+   ```bash
+   pip install meshterm meshboard claude-mesh
+   meshboard serve --port 8080 &   # browser dashboard at http://localhost:8080
+   ```
+
+   - [`meshterm`](https://github.com/umitkacar/meshterm) — iTerm2-compatible tmux automation (powers claude-ant dispatch)
+   - [`claude-mesh`](https://github.com/umitkacar/claude-mesh) — cross-platform inter-session signaling (5 transports, 3 signal layers)
+   - [`meshboard`](https://github.com/umitkacar/meshboard) — real-time observation dashboard with WebSocket fan-out + SQLite WAL event store
+
+5. **Acquire lock + run a small audit colony first** before any write-shard colonies — proves the cycle works in your environment. Pattern in §22.1–22.7.
 
 ---
 
