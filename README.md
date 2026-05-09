@@ -4,7 +4,7 @@
 
 The protocol governs dispatch, convergence, verification, and landing of parallel coding work across 6–12 concurrent shards on a single host. It is reviewed and battle-tested through three real-execution colonies and three rounds of multi-model adversarial review (Codex, Kimi, and a 3-model Perplexity council of GPT-5.5 / Claude Opus 4.7 / Gemini 3.1 Pro).
 
-**Current version:** v2.10.0 (runtime enforcement bundle — `colony-converge.sh` + `manifest-to-plan.py` + shard timeout + production-path mandatory Tier 0 + reviewer-class diversity. Grounded in Elev-W1 colony evidence where 0/5 reports passed §3 schema and a CRITICAL money-charging bug shipped through unenforced gates).
+**Current version:** v2.11.0 (operator-discipline patterns observed in the wild — §29 names six patterns from the Elev-W1 22-shard colony: queen-direct cap-exhaustion fallback, REAP recovery-decision document, cherry-pick converge, manual integration converge, schema repair via report-normalize.py, ant-honesty re-verification case study. Schema-acceptance: 0/16 → 20/20 after report-normalize.py).
 **Status:** single-host, single-queen production-ish. Max-Mode default. First max-mode colony shipped 2026-05-08: 5 shards, 113 tests, 2 real bugs found, 15 min wall-clock, ~2.0× speedup vs default-mode baseline. Cross-host signaling via [`claude-mesh`](https://github.com/umitkacar/claude-mesh); multi-host fencing remains v3.
 
 > **Max-Mode default**: colonies without an explicit `mode` field run at lightning speed. To force full-rigor verification (migrations, payment flows, auth), set `mode: "default"` or use shards with `priority: critical` / production-path tags — those auto-promote to default rules. See §25.

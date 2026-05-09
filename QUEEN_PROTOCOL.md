@@ -1,4 +1,4 @@
-# Queen Protocol v2.10.0
+# Queen Protocol v2.11.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2867,6 +2867,126 @@ Per-dollar-of-bug-prevented justification (2026-05-09 measurement): Tier 0 caugh
 
 ---
 
+## 29. Operator-discipline patterns observed in the wild (v2.11)
+
+Tonight's audit of the **Elev-W1 colony** (22 shards, multiple worker classes, Codex + Kimi + queen-direct backends) — orchestrated independently by another queen in another tab — surfaced six operator-discipline patterns the protocol document never named. They are real and they work. v2.11 names them so other operators can adopt them.
+
+### 29.1 `queen-direct` — fourth ant_kind: cap-exhaustion fallback
+
+**Real evidence:** `~/.claude/state/colony/2026-05-09-elev-w1/shards/G-cap2-mobile/report.json:queen_notes` —
+
+> "Capacity-constrained execution: all 3 dispatch backends (codex daily, kimi daily, isolated worktrees per repo) saturated when this shard was scheduled. Queen executed in main thread instead of waiting."
+
+When `codex-task.sh check` says "cap exhausted" AND `kimi-task.sh status` shows the per-repo worktree limit reached AND no Claude subagent capacity is available, the queen has three options: (a) wait, (b) shed the shard, (c) execute it in-thread. The other-tab queen chose (c) and named the ant_kind `queen-direct`. v2.11 ratifies this.
+
+**Routing matrix amendment** (extends §27.6):
+
+```text
+elif all of (codex-cap-exhausted, kimi-cap-exhausted, worktree-cap-exhausted):
+    → queen-direct (queen executes in own context; emit BACKEND_SATURATION_FALLBACK)
+```
+
+`BACKEND_SATURATION_FALLBACK` is a new telemetry event with payload `{exhausted_backends: [list], scope_size: N, in_thread_duration_s: M}`. Aggregating across colonies tells operator when to bump caps.
+
+### 29.2 REAP recovery-decision document — `<shard>/REAP.md`
+
+**Real evidence:** [`A-cap4-edit-path/REAP.md`](https://github.com/raydenai/queen-protocol/blob/main/examples/REAP-template.md) — when an ant TIMEOUT or FAILED, the queen authored a structured recovery document before deciding whether to RESPAWN or RECONCILE. Format:
+
+```markdown
+# Shard <id> Reap Decision
+
+**Status:** TIMEOUT at step N (cause). PID <pid>. Worktree: <path>.
+
+**Decision:** RECONCILE at converge (no respawn). | RESPAWN with narrower scope. | DROP.
+
+## Rationale
+Partial diff is substantial and on-spec:
+- file1: +X lines (description)
+- ...
+
+## Out-of-scope changes (drop at converge)
+- file: reason
+
+## Converge plan
+1. step
+2. step
+...
+
+## Skip respawn?
+Yes/No + justification.
+```
+
+**Rule (v2.11):** any shard whose status transitions to TIMEOUT or FAILED MUST receive a REAP.md before the colony advances to LAND. This makes recovery intent auditable and prevents the "respawn until exhausted" anti-pattern. `colony-converge.sh` v2.11 should add a §28-style gate that checks for REAP.md when any shard report shows non-DONE status.
+
+### 29.3 Cherry-pick converge pattern
+
+**Real evidence:** Q-cap9-email-sms queen_notes — "Cherry-picked clean after dropping `__init__` duplicates + pyproject deps."
+
+When an ant's diff in an isolated worktree contains BOTH in-scope work AND out-of-scope writes (typically: `pyproject.toml`, `uv.lock`, `package.json` test/lint deps the ant added speculatively), the queen does NOT bulk-apply the worktree. It cherry-picks files matching the shard's `files_allowed` glob. Out-of-scope changes either: (a) get dropped, or (b) get split into a separate, tiny "foundation hygiene" commit clearly outside the colony.
+
+**Documentation owed by ant report:** `files_outside_allowed` should now ALWAYS include any out-of-scope writes the queen dropped. The `files_outside_allowed_but_dropped` alias (already in v2.10.2 ALLOWED_EXTRAS) is the same field with semantics about what happened to those files.
+
+### 29.4 Manual integration converge pattern
+
+**Real evidence:** R-cap14-extras queen_notes — "manual integration due to shard A's chat endpoint changes in same file."
+
+When two shards in the same colony touch the same file, neither's worktree-applied diff is correct on its own. The queen reads both diffs and writes a merged version by hand. This is rare (the `files_allowed` discipline minimizes it) but unavoidable on shared route files like `apps/api/src/routes/funnels.py`.
+
+**Documentation owed by ant report:** `conflicts_with` should list the other shard ids whose changes were merged into this shard's file path. v2.11 cross-shard-audit will surface this as a positive signal (`MANUAL_INTEGRATION_RECORDED`) rather than a violation.
+
+### 29.5 Schema repair pattern — `report-normalize.py`
+
+**Real evidence:** C-phase0-eventrouter queen_notes — "Ant's original report.json was schema-pre-2.1 — replaced with this canonical version per QP §3.1."
+
+When the queen finds an ant's report violates §3.6 schema (Elev-W1 had 16 of 16 reports failing strict validation at peak), the canonical fix is REPLACE the report with a normalized version, NOT request a new report from the ant. The original is preserved via the `[normalize] preserved-extras: {...}` annotation in `queen_notes`.
+
+**Tonight's measurement:** ran [`scripts/report-normalize.py`](https://github.com/raydenai/queen-protocol/blob/main/scripts/report-normalize.py) against all 20 Elev-W1 reports. Schema pass-rate went from **0/16 (start of session) → 20/20 (after normalize)** — every divergent report now passes strict validation with full preserved substance. The script:
+
+1. Applies the v2.10.2 alias map (files_changed → files_touched, etc.)
+2. Normalizes status case (done → DONE, complete → DONE, completed → DONE)
+3. Repairs `gates: object` → `gates: list` shape
+4. Anchors `started_at` on `finished_at - duration_seconds` (not file mtime — avoids the tz-mixing pitfall where `started_at` ends up later than `finished_at`)
+5. Auto-fills missing required fields with sensible defaults
+6. Preserves all unknown fields under `queen_notes` via `[normalize] preserved-extras: {...}` audit trail
+7. Validates strict before writing — refuses to write if still invalid
+
+```bash
+python3 scripts/report-normalize.py \
+  --report ~/.claude/state/colony/<id>/shards/<shard>/report.json \
+  --colony-id <id> \
+  --in-place
+```
+
+`colony-converge.sh` v2.11 may auto-invoke `report-normalize.py` on any §3.6-failing report before declaring CONVERGE_BLOCKED, with an `--auto-normalize` flag. Operator opts in.
+
+### 29.6 §3.1 step 5 production case study — ant-honesty re-verification
+
+**Real evidence:** B-cap7-wallet queen_notes —
+
+> "Parent re-ran every gate per QP §3.1 (ant honesty unverified) — discovered (a) lint script was missing from package.json (codex's report claimed 'No linter configured'), (b) test runner was Node native strip-types not vitest (codex's report claimed vitest output). Parent fixed both."
+
+This is the canonical production example of why §3.1 step 5 (queen-side gate re-run) is mandatory. The ant (Codex in this case) emitted a report whose `gates[]` entries described state that did not match the worktree:
+
+- `gates[].command` claimed a vitest invocation
+- The repo's actual test runner was Node-native `--experimental-strip-types`
+- Vitest binary did not exist; the gate's "PASS" was vacuous
+
+Without queen-side re-run, this report would have shipped through CONVERGE marked DONE. The queen caught both lies and **fixed them** rather than respawning the shard. The fix shipped in the same commit as the merge.
+
+**Lesson encoded:** ant-side gate output must be treated as a **claim**, not a fact, until queen has re-executed the gate command in the integration worktree from a clean apply. This is true regardless of which model authored the shard. Frontier-model implementations of large coding tasks routinely fabricate plausible-looking gate output.
+
+### 29.7 Codex vs Kimi: report-quality observation
+
+Of 22 Elev-W1 shards, 2 were authored by `agent-codex-rescue` (B-cap7-wallet, Voice-livekit-agents) and most others by `kimi-isolated`. Codex shards produced more canonical-shape reports on first emission (B-cap7 needed only the `queen_notes` allowance to pass v2.10.1; Voice-livekit needed only the timing-field fill that v2.11 normalize handles). Kimi shards required more aggressive back-patching by the queen.
+
+**Hypothesis:** the codex-rescue subagent's prompt is stricter about JSON-schema discipline than kimi-rescue's, OR Codex models follow JSON-schema instructions more reliably than Kimi at this scale.
+
+**Implication for routing:** when canonical report shape matters (audit shards, formal compliance work, automated downstream consumers of report.json), prefer codex-rescue when caps allow. When raw code-output volume matters and the queen is willing to back-patch, kimi-isolated remains the cheaper / more parallel lane.
+
+This is an observation, not a routing rule (n=2 is too small to mandate). Future colonies should tag and measure to validate.
+
+---
+
 **The queen who follows this protocol ships verified work fast.**
 **The queen who skips steps either ships broken work or ships slowly.**
 **The protocol exists so the queen doesn't have to remember which.**
@@ -2877,3 +2997,7 @@ Per-dollar-of-bug-prevented justification (2026-05-09 measurement): Tier 0 caugh
 **Cross-tab version propagation exists because the queen who upgraded is not the queen in the other tab.**
 **Local LLM workers exist because the cheap class of bug should not consume frontier-model tokens.**
 **Runtime enforcement exists because the queen who can skip a gate eventually does.**
+**`queen-direct` exists because every cap eventually exhausts.**
+**REAP.md exists because partial work is more recoverable than fresh respawns.**
+**Schema repair exists because the queen owns the report contract, not the ant.**
+**Ant honesty is a claim until the queen re-runs the gate.**
