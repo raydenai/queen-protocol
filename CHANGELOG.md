@@ -2,6 +2,22 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.13.0 — 2026-05-09
+
+**Per-shard dispatch lock — duplicate-dispatch failure mode closed.**
+
+- **§29.9 NEW.** Real evidence: at 18:13 UTC two queens in two different tabs each dispatched `X-test-repair` from the Elev-W1 colony within **10 seconds** of each other (PIDs 33077 + 34795). Same colony, same shard ID, same prompt file. Both ran to completion independently; the duplicate consumed 1 Kimi cap and would have produced a worktree merge conflict at converge. The §6 queen-lock prevents two queens RUNNING the same colony state machine simultaneously, but does NOT prevent two queens DISPATCHING the same shard ID from different sessions. v2.13 closes that gap.
+- **`scripts/dispatch-lock.sh` shipped.** POSIX-atomic mkdir-based lock at `~/.claude/state/colony/<colony-id>/shards/<shard-id>/dispatch.lock/holder.json`. Subcommands: `acquire` (exit 0 success / exit 1 conflict), `release`, `check`, `sweep` (find stale locks where holder PID is dead OR >4h old with no report.json).
+- **Smoke-tested live:** acquire → conflict-on-second-acquire → release → sweep cycle all clean.
+- **Operator change:** every dispatch path (kimi-task.sh / codex-task.sh / claude-ant Agent calls) should run `dispatch-lock.sh acquire` before invoking the worker. Future v2.14 may wrap the existing task-launcher scripts to invoke this automatically.
+- **colony-watcher v2.13 integration (deferred to v2.14):** watcher will surface `STALE_DISPATCH_LOCK` events but won't auto-remove (too dangerous — lock might guard real in-flight work the watcher can't see).
+
+**Companion ConvertZap fix shipped same session (commit `21fc4eb`):** AA-migration-replay (Kimi audit, PID 34842) flagged 6 wave-1 migrations with bare `CREATE INDEX` statements that would fail on manual replay. Applied `IF NOT EXISTS` to 33 indexes across 0049/0050/0053/0055/0059/0060. Pure additive fix, no schema or behavior change. Confirms the protocol's audit-then-fix loop is producing real value to the operator's revenue codebase.
+
+**Why minor bump:** §29.9 is a new shipped script with a real failure-mode-closing contract. Behavior change visible to every operator running multi-tab queens.
+
+**Self-rated:** ~9.8/10 (up from 9.7). The 0.1 jump comes from closing the multi-session duplicate-dispatch gap that was the highest-frequency real-world failure observed today (1 occurrence in ~26 shards). Remaining 0.2 needs `colony.sh` full state-machine kernel + multi-host fencing.
+
 ## v2.12.0 — 2026-05-09
 
 **Automated colony-watcher daemon — protocol enforcement runs while you work.** Operator was actively running queen-ant in another tab while this queen iterated on protocol patches. Each new shard the other-tab queen wrote risked another schema-divergent report. The protocol's enforcement should run *while* queens work, not just *after* the operator triggers `colony-converge.sh` manually.

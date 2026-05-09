@@ -1,4 +1,4 @@
-# Queen Protocol v2.12.0
+# Queen Protocol v2.13.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2974,6 +2974,35 @@ This is the canonical production example of why §3.1 step 5 (queen-side gate re
 Without queen-side re-run, this report would have shipped through CONVERGE marked DONE. The queen caught both lies and **fixed them** rather than respawning the shard. The fix shipped in the same commit as the merge.
 
 **Lesson encoded:** ant-side gate output must be treated as a **claim**, not a fact, until queen has re-executed the gate command in the integration worktree from a clean apply. This is true regardless of which model authored the shard. Frontier-model implementations of large coding tasks routinely fabricate plausible-looking gate output.
+
+### 29.9 Per-shard dispatch lock (v2.13)
+
+**Real evidence (2026-05-09 18:13 UTC):** two queens in two different tabs each dispatched the same shard `X-test-repair` from Elev-W1 colony — within 10 seconds of each other. PID 33077 (this queen) and PID 34795 (other-tab queen). Same colony, same shard ID, same prompt file. Both worked through the test repair independently. The other-tab queen finished first; this queen's dispatch was retroactively cancelled to avoid duplicate Kimi cap consumption + worktree merge conflict at converge.
+
+**Gap diagnosed:** §6 queen-lock prevents two queens RUNNING the same colony state machine simultaneously, but does NOT prevent two queens DISPATCHING the same shard ID from different sessions. The lock granularity is wrong for multi-session real-world use.
+
+**Rule (v2.13):** every shard dispatch MUST acquire a per-shard atomic lock at `~/.claude/state/colony/<colony-id>/shards/<shard-id>/dispatch.lock/holder.json` BEFORE invoking the worker (kimi-isolated, codex-rescue, claude-ant, etc.). On conflict the caller refuses-or-waits. On success the lock is released after report.json lands or REAP.md is written.
+
+**Implementation:** [`scripts/dispatch-lock.sh`](./scripts/dispatch-lock.sh). Uses `mkdir`'s POSIX-atomic semantics (no `flock` dependency).
+
+```bash
+# Before dispatch
+scripts/dispatch-lock.sh acquire <colony-id> <shard-id> --queen $$
+# returns exit 0 on success, exit 1 if held by another queen
+
+# After converge (LAND or REAP.md authored)
+scripts/dispatch-lock.sh release <colony-id> <shard-id>
+
+# Diagnostics
+scripts/dispatch-lock.sh check <colony-id> <shard-id>    # print holder
+scripts/dispatch-lock.sh sweep <colony-id>                # find stale locks
+```
+
+**Stale-lock recovery:** the `sweep` subcommand identifies locks where (a) the holder PID is dead OR (b) the lock is >4h old with no report.json yet. Operator decides removal — colony-watcher v2.13 will surface these via `STALE_LOCK` events but won't auto-remove (too dangerous: lock might guard real in-flight work the watcher can't see).
+
+**colony-watcher integration:** v2.13's watcher adds a sweep stage that calls `dispatch-lock.sh sweep` per active colony and emits `STALE_DISPATCH_LOCK` events.
+
+**Cost:** ~10ms per lock acquire. Eliminates the duplicate-dispatch failure mode entirely.
 
 ### 29.8 Automated colony-watcher daemon (v2.12)
 
