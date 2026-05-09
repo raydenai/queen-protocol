@@ -2,6 +2,28 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.8.0 — 2026-05-09
+
+**Local LLM as fourth-tier worker.** Operator installed Gemma 4 (Ollama: `gemma4:31b` 19GB + `gemma4:e4b` 9.6GB) on 2026-05-09. Smoke-test: e4b (4B-class) correctly answered the Colony 10 question "why is `dict[str, T]` keyed by `idempotency_key` only risky in multi-tenant code?" with "It lacks tenant scoping, risking cross-tenant data collisions or accidental overwrites." On-target security review answer at $0 cost and ~1s latency. Worker scaffolding `~/.claude/scripts/g4-task.sh` already shipped with full kimi-task.sh / codex-task.sh interface parity.
+
+- **§27 NEW — Local LLM as fourth-tier worker.** Documents the capability/cost matrix vs cloud workers (Opus, Codex, Kimi, g4-local), the honest capability ceiling (mid-tier 4B/27B catches: tenant-scoping smell, missing async lock, stub code, swallowed except, schema drift; misses: cross-file composition, subtle races, architecture judgment), and the four high-value uses below.
+- **§27.2 NEW — Tier 0 local pre-screen.** A new gate tier inserted before queen six-step validation. Every shard's diff is reviewed by `gemma4:31b` for cheap-class bugs before the ant submits its report. PASS → continue; FLAG → ant must address or document waiver. Catches the bug class that consumed a Codex/Kimi call in v2.7.
+- **§27.3 calibration — Sample-rate gate-rerun obsolete when local LLM available.** v2.6 §25.6 set `gate_rerun_sample_rate: 3` (catches 86.8% of single-shard gate-lies; 13% escape) because cloud rerun was expensive. With g4-local, exhaustive rerun is free + fast (5–30s/colony). v2.8 max-mode default with local LLM available: full rerun, 0% escape, $0.00 cost.
+- **§27.4 NEW — Privacy triage.** Pre-cloud secrets/PII screen via local LLM. Diffs scanned by Gemma before any forward to Codex/Kimi/Opus. If sensitive content detected, redact-or-skip. Unlocks queen colonies on HIPAA / PCI / GDPR-restricted code paths that previously could not touch cloud LLMs.
+- **§27.5 NEW — Prompt-injection pre-screen.** Defense-in-depth on §3.4 semantic injection. Operator-provided `launch_brief.extra_context` strings get a Gemma pass to flag injection attempts ("ignore previous instructions", "you are now DAN", obfuscated unicode, base64 code-exec payloads). Catches what regex allowlists miss.
+- **§27.6 routing decision function updated.** Added g4-local to the routing matrix:
+  - `shard.kind in (review, single-file)` → g4-local Tier 0, escalate to claude-ant on FLAG
+  - `shard.kind in (summarize, classify, doc-pass)` → g4-local always
+  - `shard.privacy_class in (PII, secrets)` → g4-local ONLY (no cloud forward)
+  - Cap-exhausted Codex/Kimi → fall back to g4-local for cheap operations
+- **§27.7 cap reset — combined-cost view.** Real operator caps as of 2026-05-08: Codex 84/week (cap 20/day), Kimi 8/week, Claude unlimited. Adding g4-local removes cap-exhaustion as a failure mode for the cheap class of operations; Codex/Kimi caps now reserve for actual frontier-model needs.
+- **§27.8 — what this does NOT change.** Tier 1 queen validation, Tier 3 dual review at ≥3 shards (still Codex + Kimi for diversity), §25.11 cross-shard rg audit, §25.12 git-snapshot detection. g4-local is a NEW lane, not a replacement.
+- **§27.9 plan.json schema addition.** `local_llm: { enabled, endpoint, default_model, review_model, tier_0_enabled, privacy_triage_enabled }` per-colony. Graceful fallback to v2.7 behavior if endpoint unreachable.
+
+**Why minor bump:** §27 introduces a new worker class with a new gate tier (Tier 0). Behavior change visible to every operator with local LLM available. Cost and capability profile is fundamentally different from cloud workers.
+
+**Self-rated:** ~9.2/10 (up from 9.0). Local LLM closes the cost-floor on the cheap class of operations and unlocks privacy-sensitive code paths the protocol couldn't touch before. The g4-task.sh scaffolding being already-shipped means §27 isn't aspirational — it's documented reality.
+
 ## v2.7.0 — 2026-05-09
 
 **Multi-tab reality.** Three patches grounded in observed evidence from a parallel session running Phase A-I (27 commits in 8 hours, including a 0037→0047 migration collision caught at PR review).

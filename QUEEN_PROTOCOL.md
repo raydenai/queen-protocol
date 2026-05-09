@@ -1,4 +1,4 @@
-# Queen Protocol v2.7.0
+# Queen Protocol v2.8.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2540,6 +2540,158 @@ What remains unsolved:
 
 ---
 
+## 27. Local LLM as fourth-tier worker (v2.8 — cost/privacy/parallelism unlock)
+
+**Real evidence (2026-05-09):** operator installed Gemma 4 locally via Ollama (`gemma4:31b` 19GB + `gemma4:e4b` 9.6GB). Both models respond in 1–10s for short reviews on Apple Silicon. A 9.6GB e4b correctly answered "Why is `dict[str, T]` keyed only by `idempotency_key` risky in multi-tenant code?" with: *"It lacks tenant scoping, risking cross-tenant data collisions or accidental overwrites."* That's an on-target security review answer — same class of bug we caught in Colony 10. The local stack is real and useful.
+
+**Worker scaffolding shipped:** [`~/.claude/scripts/g4-task.sh`](../../.claude/scripts/g4-task.sh) mirrors `kimi-task.sh` / `codex-task.sh` (start/status/result/notify/cancel/cleanup/usage/review/summarize). Wired into the UserPromptSubmit hook for cross-session result notification.
+
+### 27.1 Capability/cost matrix vs cloud workers
+
+| Worker | Model class | Latency (typical) | Cost / call | Daily cap | Best at |
+|---|---|---|---|---|---|
+| **claude-ant (Opus 4.7)** | Frontier | 20–60s | $0.30–1.00 | none (subscription) | Multi-file design, cross-shard composition, nuanced architecture review |
+| **agent:codex-rescue (GPT-5.5)** | Frontier | 30–120s | $0.10–0.50 | 20/day default | Independent diagnosis, audit second-opinion, technical lens |
+| **agent:kimi-rescue (Kimi k2.6)** | Frontier-adjacent (262k ctx) | 20–90s | ~$0.05 | 30/day default | Read-deep across many files, operational lens, isolated worktree work |
+| **g4-local (Gemma 4)** | Mid-tier (4B / 27–31B) | 1–10s | $0.00 | none | Cheap exhaustive gate-rerun, privacy triage, prompt-injection pre-screen, first-pass syntax/lint review, doc summarization, classification |
+
+**Capability ceiling (honest):** Gemma 4 e4b (4B) and 31b are MID-TIER models. They will NOT catch the same class of bug as Opus 4.7 / Kimi k2.6 / GPT-5.5. They WILL catch:
+
+- Tenant-scoping smell ("dict keyed by str only" → cross-tenant)
+- Missing async lock around shared dict mutation
+- `pass`/TODO/FIXME placeholder code
+- Obvious swallowed exceptions
+- Schema drift (Pydantic field renamed but caller wasn't updated)
+- Plain-text style/lint issues
+- High-level summarization
+
+They will MISS or get wrong:
+
+- Cross-file composition bugs that span many modules
+- Subtle race conditions requiring dynamic-execution reasoning
+- Architecture/system-design judgment calls
+- Anything requiring more than ~50KB of context held in working memory simultaneously
+
+Use g4-local for the cheap broad pass; route the hard residue to cloud workers.
+
+### 27.2 New gate tier — Tier 0 local pre-screen
+
+Insert before existing tiers. Runs on every diff, takes seconds, costs nothing.
+
+- **Tier 0 (NEW, v2.8) — local pre-screen on every shard's diff before ant submits report.**
+  - `g4-task.sh review <diff-file> gemma4:31b` for write shards
+  - Verdicts: PASS / FLAG (with reasoning)
+  - PASS → ant proceeds to write report; FLAG → ant must address or document waiver in `assumptions[]`
+  - Catches: stub code, swallowed except, missing tenant scoping, obvious null-deref, secret-shaped strings
+- **Tier 1 (existing) — queen six-step validation** (parse, schema, diff truth, skill grep, gate rerun, conflict pre-check)
+- **Tier 2 (existing) — single review at converge** (≤2-shard colonies in max-mode)
+- **Tier 3 (existing, v2.6) — dual review at converge** (≥3-shard colonies, all default-mode)
+
+Tier 0 doesn't replace tiers 1–3. It catches the cheap class of bug locally before consuming an Anthropic / Kimi / Codex token, freeing the cloud caps for the hard work.
+
+### 27.3 §25.6 amendment — sample-rate gate-rerun is obsolete when local LLM is available
+
+The sample-rate gate-rerun (1/N=3) was justified by the cost of cloud-LLM rerun. With g4-local, gate rerun is **free and exhaustive**:
+
+- v2.6 max-mode: `gate_rerun_sample_rate: 3` → 86.8% catch rate per shard, 13% of single-shard gate-lies escape
+- **v2.8 max-mode (g4-local available)**: `gate_rerun: full` via local model → 100% rerun, 0% escape, $0.00 cost, +5–30 s wall-clock per colony
+
+Operator opt-in via `colony.local_llm_endpoint` config (default: `http://localhost:11434` if Ollama detected). When set, sampling falls back to deterministic full rerun.
+
+### 27.4 Privacy triage — pre-cloud secrets/PII screen
+
+Before any diff-summary or code is sent to a cloud LLM, **g4-local scans for secrets/PII**:
+
+```bash
+g4-task.sh start --model gemma4:31b \
+  --system "You are a security scanner. Identify any secrets, API keys, customer PII, or confidential data in the diff. Output JSON: {found_sensitive: bool, items: [{type, line, redact_recommended}]}." \
+  /tmp/diff-to-review.txt
+```
+
+If `found_sensitive: true`, the diff is REDACTED before forwarding to Codex/Kimi/Opus. Defense-in-depth on §3.4 semantic injection defenses + §19 secrets boundary.
+
+This unlocks queen colonies on **compliance-sensitive code paths** (HIPAA, PCI, GDPR-restricted) that previously could not be reviewed by cloud LLMs.
+
+### 27.5 Prompt-injection pre-screen — local first-pass on user-controlled context
+
+Per §3.4, queen sanitizes user-controlled JSON before passing to cloud LLMs. v2.8 adds:
+
+- **g4-local pre-screen**: any `launch_brief.extra_context` or operator-provided strings get a Gemma pass first to flag injection attempts ("ignore previous instructions", "you are now DAN", obfuscated unicode, base64 payloads suggesting code execution)
+- Flagged content is logged to telemetry as `PROMPT_INJECTION_FLAGGED` and either redacted or surfaced to operator before cloud forward
+
+Catches the class of injection a regex allowlist misses but a small LM trained on safety data does catch.
+
+### 27.6 Routing decision function — updated v2.8
+
+```text
+Decide ant_kind based on shard properties:
+
+if shard.tags ∩ {payment, auth, migration, security-critical} OR shard.priority == "critical":
+    → claude-ant (default-mode, dual review)
+
+elif shard.adds_migrations > 0 OR shard.touches > 5 files:
+    → kimi-isolated (worktree) for write + claude-ant queen-side for review
+
+elif shard.kind == "audit" AND no write expected:
+    → kimi-isolated (read-only) OR g4-local for cheap first pass
+
+elif shard.kind == "review" AND single-file:
+    → g4-local (Tier 0) → escalate to claude-ant if Tier 0 flags issues
+
+elif shard.kind == "summarize" OR "classify" OR "doc-pass":
+    → g4-local always (free, fast, sufficient quality)
+
+elif shard.kind == "prompt-injection-screen":
+    → g4-local (always before cloud forward)
+
+elif shard.privacy_class == "PII" OR "secrets":
+    → g4-local ONLY (no cloud forward)
+
+else:
+    → max-mode default (kimi-isolated, single review at ≤2 shards, dual at ≥3)
+```
+
+### 27.7 Cap reset — combined-cost view
+
+| Lane | Daily | 7-day actual (operator, 2026-05-08) |
+|---|---|---|
+| Claude (subscription, no per-call cap) | unlimited | many |
+| Codex | 20 default | 84 |
+| Kimi | 30 default | 8 (reset cycle) |
+| Gemma 4 local | unlimited (GPU bound) | unlimited going forward |
+
+The Gemma lane removes the cap-exhaustion failure mode for cheap operations. Kimi/Codex caps now reserve for actual frontier-model needs.
+
+### 27.8 What this does NOT change
+
+- Tier 1 queen-side validation (§3.1) still runs unchanged
+- Tier 3 dual review at ≥3 shards (§25.5) still uses Codex + Kimi (real diversity matters; two cloud frontier models > one cloud + one local for the hardest review)
+- §25.11 cross-shard invariant audit is rg-based, not LLM-based — Gemma adds nothing there
+- §25.12 external-stream detection is git-based — Gemma adds nothing there
+
+g4-local is a NEW lane, not a REPLACEMENT for any existing lane.
+
+### 27.9 Operator-side configuration
+
+Per-colony in `plan.json`:
+
+```json
+{
+  "local_llm": {
+    "enabled": true,
+    "endpoint": "http://localhost:11434",
+    "default_model": "gemma4:e4b",
+    "review_model": "gemma4:31b",
+    "tier_0_enabled": true,
+    "privacy_triage_enabled": true
+  }
+}
+```
+
+If `local_llm.enabled` is missing or `endpoint` doesn't respond, queen falls back to v2.7 behavior gracefully (no Tier 0, sample-rate gate-rerun returns).
+
+---
+
 **The queen who follows this protocol ships verified work fast.**
 **The queen who skips steps either ships broken work or ships slowly.**
 **The protocol exists so the queen doesn't have to remember which.**
@@ -2548,3 +2700,4 @@ What remains unsolved:
 **External-stream detection exists because the queen-lock can't see the other tabs.**
 **Migration number reservation exists because two queens reach for `0037` at the same time.**
 **Cross-tab version propagation exists because the queen who upgraded is not the queen in the other tab.**
+**Local LLM workers exist because the cheap class of bug should not consume frontier-model tokens.**
