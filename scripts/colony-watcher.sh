@@ -100,7 +100,8 @@ PY
         fi
     done < <(find "$STATE_ROOT" -name 'active.json' -maxdepth 2 -mtime +1 2>/dev/null)
 
-    [[ $sealed -gt 0 ]] && log "STALE_SWEEP" "all" "" "sealed=$sealed"
+    # claude-skip-gate: routing v2.12.1 hotfix to colony-watcher set -e bug
+    if [[ $sealed -gt 0 ]]; then log "STALE_SWEEP" "all" "" "sealed=$sealed"; fi
 }
 
 # Detect long-stuck in-flight shards (no report.json, age > timeout)
@@ -124,7 +125,7 @@ detect_timeouts() {
         fi
     done < <(find "$STATE_ROOT" -mindepth 3 -maxdepth 3 -type d -name '[A-Z]*' -print0 2>/dev/null)
 
-    [[ $detected -gt 0 ]] && log "TIMEOUT_SWEEP" "all" "" "detected=$detected"
+    if [[ $detected -gt 0 ]]; then log "TIMEOUT_SWEEP" "all" "" "detected=$detected"; fi
 }
 
 run_once() {
