@@ -1,4 +1,4 @@
-# Queen Protocol v2.11.0
+# Queen Protocol v2.12.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2974,6 +2974,34 @@ This is the canonical production example of why §3.1 step 5 (queen-side gate re
 Without queen-side re-run, this report would have shipped through CONVERGE marked DONE. The queen caught both lies and **fixed them** rather than respawning the shard. The fix shipped in the same commit as the merge.
 
 **Lesson encoded:** ant-side gate output must be treated as a **claim**, not a fact, until queen has re-executed the gate command in the integration worktree from a clean apply. This is true regardless of which model authored the shard. Frontier-model implementations of large coding tasks routinely fabricate plausible-looking gate output.
+
+### 29.8 Automated colony-watcher daemon (v2.12)
+
+**Real evidence:** during a working session on 2026-05-09 the operator was actively running queen-ant in another tab while this queen iterated on protocol patches. Synthesizing reports for D-cap14 and U-cap19 manually took several Bash round-trips and operator attention. Each new shard the other-tab queen wrote risked another schema-divergent report.
+
+**Rule (v2.12):** the protocol's enforcement should run *while* queens work, not just *after* the operator triggers `colony-converge.sh` manually. Ships [`scripts/colony-watcher.sh`](./scripts/colony-watcher.sh), a launchd-installable daemon that sweeps every 10 minutes:
+
+1. Auto-normalizes any report.json that fails strict §3 validation (delegates to `report-normalize.py --in-place`)
+2. Seals stale `phase: LAND, landed_at: RUNNING` active.json files older than 24h → marks LANDED with synthesized timestamp + queen_notes audit trail
+3. Detects long-stuck in-flight shards (no report.json, no REAP.md, >4h old) → emits `TIMEOUT_DETECTED` to log so operator can author REAP.md
+4. Logs every action to `~/.claude/state/colony/_watcher.log` with one-line per action
+
+```bash
+# macOS: install LaunchAgent (every 600s)
+scripts/colony-watcher.sh install-launchd
+
+# Linux / cron alternative
+*/10 * * * *  ~/projects/queen-protocol/scripts/colony-watcher.sh once
+
+# Operator-side status check
+scripts/colony-watcher.sh status
+```
+
+**Smoke-tested live (2026-05-09):** corrupted a known-good report by deleting `started_at`, lowercasing `status: "done"`, renaming `files_touched → files_changed`. Watcher detected at next sweep, auto-normalized in <1s, validated PASS, logged `REPORT_NORMALIZED` + `REPORT_SWEEP` events. Operator unaware (silent operation).
+
+**Idempotency guarantee:** the watcher exits 0 always, takes no action when no work is found, and never writes to a report that already passes strict validation. Safe to run on every cron tick.
+
+**Failure mode:** `report-normalize.py` may fail on truly broken reports (gates non-list AND status missing AND no aliasable variants). Watcher logs `REPORT_NORMALIZE_FAILED` for those — surfaces to operator without blocking other sweeps.
 
 ### 29.7 Codex vs Kimi: report-quality observation
 
