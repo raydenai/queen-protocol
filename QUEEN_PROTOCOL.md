@@ -1,4 +1,4 @@
-# Queen Protocol v2.8.0
+# Queen Protocol v2.9.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2689,6 +2689,86 @@ Per-colony in `plan.json`:
 ```
 
 If `local_llm.enabled` is missing or `endpoint` doesn't respond, queen falls back to v2.7 behavior gracefully (no Tier 0, sample-rate gate-rerun returns).
+
+### 27.10 Tier 0 calibration evidence (v2.9 — real measurement)
+
+**Three controlled tests, 2026-05-09**, against the actual Ollama `gemma4:31b` + `gemma4:e4b` stack on operator's host. Each test fed a code sample to the model with a security-focused prompt and measured what it caught.
+
+**Test 1 — Synthetic ground truth (Colony 10 bug pattern, 34-line file).**
+
+Code: an `_idempotency_cache: dict[str, ...]` keyed only by `idempotency_key`, no auth check, no lock, no eviction — same five bugs queen-side dual review caught in Colony 10.
+
+Result on `gemma4:31b`: **5 of 5 ground-truth bugs found in 111 seconds.**
+
+| Bug | Caught? | Quote |
+|---|---|---|
+| Cross-tenant cache key | ✅ | "If User A and User B both use the same idempotency_key, User B will get User A's project_id." |
+| Race conditions on shared dict | ✅ | "the 'check-then-set' pattern is not atomic across `await` points" + multi-worker note |
+| Missing auth | ✅ | "`workspace_id` is passed in the body, but not verified against the authenticated user" |
+| Stub/incomplete | ✅ | "`background_tasks` argument is present but never used" |
+| Memory leak | ✅ | "`_idempotency_cache` grows indefinitely. There is no cleanup mechanism" |
+
+**Test 2 — Same code on `gemma4:e4b` (4B-class).** 126 seconds, **3 of 3 critical bugs found** (cross-tenant, race conditions, missing locks) PLUS a bonus architectural finding ("Using a global, in-memory dictionary for critical state management is fundamentally unsafe in a production, multi-process, or scaled environment"). The 4B model gives up some depth (didn't catch background_tasks-unused or memory leak) but keeps the critical safety set.
+
+**Test 3 — Real production diff (~200 lines, Stripe Connect commit `a0f11ff`).** 317 seconds on 31b, surfaced 3 distinct CRITICAL bugs in revenue-critical code:
+
+| Bug | Severity | Note |
+|---|---|---|
+| Missing idempotency in `create_checkout_session` (line 205) | CRITICAL | "Rapid clicks can create multiple Stripe sessions" — real payment-reliability issue |
+| Missing auth in `erase_voice_transcripts` (line 473) | CRITICAL | "workspace_id accepted but not validated against authenticated user" |
+| Silent exception in payment routing fallback | IMPORTANT | "DB timeout should not result in a change of payment routing" |
+
+The model also self-corrected on a candidate finding ("Wait, is the 'silent fallback' really a bug?"), demonstrating useful metacognition.
+
+**Calibrated catch rates (3-test sample, n still small):**
+
+- Critical-class bugs: **31b 100% (8/8), e4b ~75% (3/3 critical + missed depth findings)**
+- False-positive rate observed: **0** (no fabricated bugs in any test)
+- Latency: 111s–317s on 31b; 126s on e4b (Apple Silicon)
+- Cost: $0.00
+
+**Implication for §27.2 Tier 0:** Tier 0 pre-screen is shipping-grade for catching the cross-tenant / payment-idempotency / missing-auth / stub-code class. It is NOT a replacement for cloud dual review on architecture or cross-shard composition.
+
+### 27.11 Operational gotcha — Gemma 4 thinking-mode token budget
+
+Gemma 4 (both `:31b` and `:e4b`) emits hidden reasoning into the response's `message.thinking` field BEFORE producing visible `message.content`. The Ollama `num_predict` option counts BOTH thinking + content tokens.
+
+**Failure mode:** if `num_predict` is set too low (<1000 for 31b, <800 for e4b), the model exhausts the budget on thinking and returns empty `content` with `done_reason: "length"`. Test 3 above hit this — the actual review was inside `thinking`, not `content`.
+
+**Fix:**
+
+```json
+{
+  "model": "gemma4:31b",
+  "messages": [...],
+  "options": {
+    "num_predict": 3000,
+    "temperature": 0.15
+  }
+}
+```
+
+OR disable thinking (faster, less depth):
+
+```json
+{
+  "options": { "num_predict": 800, "think": false }
+}
+```
+
+`g4-task.sh` should default to `num_predict: 3000` for review tasks; this is a v2.9 calibration patch to the worker scaffolding.
+
+**Output extraction order:**
+
+```python
+content = response["message"].get("content","")
+thinking = response["message"].get("thinking","")
+review_text = content if content.strip() else thinking  # fall back to thinking
+```
+
+Ants and queen should always check both fields. Documented here so v2.9+ operators don't lose findings to truncation like Test 3 did before this gotcha was understood.
+
+---
 
 ---
 

@@ -4,7 +4,7 @@
 
 The protocol governs dispatch, convergence, verification, and landing of parallel coding work across 6–12 concurrent shards on a single host. It is reviewed and battle-tested through three real-execution colonies and three rounds of multi-model adversarial review (Codex, Kimi, and a 3-model Perplexity council of GPT-5.5 / Claude Opus 4.7 / Gemini 3.1 Pro).
 
-**Current version:** v2.8.0 (local LLM as fourth-tier worker — Gemma 4 via Ollama added as $0-cost lane for Tier 0 pre-screen, exhaustive gate-rerun, privacy triage, prompt-injection pre-screen).
+**Current version:** v2.9.0 (Tier 0 calibration evidence — gemma4:31b caught 5/5 Colony 10 ground-truth bugs in 111s + 3 critical bugs in real Stripe Connect production diff at $0 cost; thinking-mode token-budget gotcha documented).
 **Status:** single-host, single-queen production-ish. Max-Mode default. First max-mode colony shipped 2026-05-08: 5 shards, 113 tests, 2 real bugs found, 15 min wall-clock, ~2.0× speedup vs default-mode baseline. Cross-host signaling via [`claude-mesh`](https://github.com/umitkacar/claude-mesh); multi-host fencing remains v3.
 
 > **Max-Mode default**: colonies without an explicit `mode` field run at lightning speed. To force full-rigor verification (migrations, payment flows, auth), set `mode: "default"` or use shards with `priority: critical` / production-path tags — those auto-promote to default rules. See §25.
