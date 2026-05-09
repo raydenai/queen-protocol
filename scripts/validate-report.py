@@ -1,21 +1,37 @@
 #!/usr/bin/env python3
-"""Queen Protocol v2.3.4 report validator.
+"""Queen Protocol v2.10.2 report validator.
 
 Usage:
-    python3 ~/.claude/scripts/validate-report.py <path-to-report.json>
+    python3 ~/projects/queen-protocol/scripts/validate-report.py <path-to-report.json>
+    python3 ~/projects/queen-protocol/scripts/validate-report.py --strict <path>
 
 Exit codes:
-    0 — report is valid
+    0 — report is valid (after alias normalization)
     1 — schema violations (errors printed to stderr)
     2 — JSON parse failure
 
-Run this BEFORE declaring __SHARD_DONE__. Queen also runs it at converge.
+v2.10.2 calibration (Elev-W1 colony evidence): real-world ants emit
+identical-meaning fields under different names (`files_changed` for
+`files_touched`, `completed_at` for `finished_at`, `done` for `DONE`,
+etc.). Strict rejection produced 0/22-passing reports while the work
+itself was sound.
+
+The validator now:
+  - Aliases known field-name variants to canonical names before checking
+  - Normalizes status case (`done` → `DONE`)
+  - Allows `started_at`/`finished_at`/`duration_seconds` to be derived
+    from `timestamp`/`completed_at`/`wall_minutes` if present
+  - Allows a wider ALLOWED_EXTRAS set for annotation slots seen in field
+
+Use `--strict` to disable alias normalization (the v2.3.4 behavior).
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 REQUIRED = {
     "schema_version",
@@ -36,17 +52,94 @@ REQUIRED = {
     "duration_seconds",
     "ant_kind",
 }
+
+# v2.10.2: alias map from observed real-world variants to canonical key
+# Multiple aliases can map to the same canonical; we coalesce.
+FIELD_ALIASES: dict[str, str] = {
+    "files_changed": "files_touched",
+    "files_modified": "files_touched",
+    "files_created": "files_touched",
+    "completed_at": "finished_at",
+    "timestamp": "finished_at",
+    "shard": "shard_id",
+    "title": "diff_summary",
+    "goal": "diff_summary",
+    "notes": "diff_summary",
+    "acceptance_gates": "gates",
+    "phase": "ant_kind",
+    "cap": "shard_id",
+}
+
 ALLOWED_EXTRAS = {
     "audit_findings", "findings", "verdict", "mode", "extra",
-    # v2.10.1 calibration: Elev-W1 colony (2026-05-09) used `queen_notes` as
-    # a deliberate annotation slot on multiple shard reports. Schema accepts.
     "queen_notes", "operator_notes",
+    # v2.10.2: Elev-W1 ants in production added these as legitimate slots
+    "artifacts", "blocks_delivered", "critical_rules_verified",
+    "migration", "wall_minutes", "files_outside_allowed_but_dropped",
 }
+
 VALID_STATUS = {"DONE", "FAILED", "TIMEOUT"}
+STATUS_ALIASES = {
+    "done": "DONE",
+    "complete": "DONE",
+    "completed": "DONE",
+    "success": "DONE",
+    "succeeded": "DONE",
+    "fail": "FAILED",
+    "failed": "FAILED",
+    "error": "FAILED",
+    "timeout": "TIMEOUT",
+    "timed_out": "TIMEOUT",
+}
 VALID_GATE_STATUS = {"PASS", "FAIL", "SKIP"}
+GATE_STATUS_ALIASES = {
+    "pass": "PASS", "passed": "PASS", "ok": "PASS", "green": "PASS",
+    "fail": "FAIL", "failed": "FAIL", "error": "FAIL", "red": "FAIL",
+    "skip": "SKIP", "skipped": "SKIP", "n/a": "SKIP", "na": "SKIP",
+}
 
 
-def validate(path: Path) -> list[str]:
+def normalize(report: dict[str, Any]) -> dict[str, Any]:
+    """Apply v2.10.2 alias normalization. Returns a new dict; original unchanged."""
+    out = dict(report)
+
+    # 1. Field-name aliases — canonical key wins; alias only used if canonical missing
+    for alias, canonical in FIELD_ALIASES.items():
+        if alias in out and canonical not in out:
+            out[canonical] = out.pop(alias)
+        elif alias in out and canonical in out:
+            # Both present: drop the alias to canonicalize keyspace
+            out.pop(alias)
+
+    # 2. Status case-insensitive
+    status = out.get("status")
+    if isinstance(status, str):
+        s_lower = status.strip().lower()
+        if status not in VALID_STATUS and s_lower in STATUS_ALIASES:
+            out["status"] = STATUS_ALIASES[s_lower]
+
+    # 3. Derive timing fields if they're missing but related fields exist
+    if "duration_seconds" not in out and "wall_minutes" in out:
+        try:
+            out["duration_seconds"] = int(float(out["wall_minutes"]) * 60)
+        except (TypeError, ValueError):
+            pass
+
+    # 4. Gate-status case-insensitive
+    if isinstance(out.get("gates"), list):
+        for g in out["gates"]:
+            if not isinstance(g, dict):
+                continue
+            gs = g.get("status")
+            if isinstance(gs, str) and gs not in VALID_GATE_STATUS:
+                gl = gs.strip().lower()
+                if gl in GATE_STATUS_ALIASES:
+                    g["status"] = GATE_STATUS_ALIASES[gl]
+
+    return out
+
+
+def validate(path: Path, strict: bool = False) -> list[str]:
     """Return list of error messages. Empty list = valid."""
     errors: list[str] = []
 
@@ -59,6 +152,9 @@ def validate(path: Path) -> list[str]:
 
     if not isinstance(report, dict):
         return ["report must be a JSON object at top level"]
+
+    if not strict:
+        report = normalize(report)
 
     missing = REQUIRED - set(report.keys())
     unknown = set(report.keys()) - REQUIRED - ALLOWED_EXTRAS
@@ -116,14 +212,13 @@ def validate(path: Path) -> list[str]:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(
-            "usage: validate-report.py <path-to-report.json>", file=sys.stderr
-        )
-        return 1
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("path", type=Path)
+    ap.add_argument("--strict", action="store_true",
+                    help="Disable v2.10.2 alias normalization (v2.3.4 behavior)")
+    args = ap.parse_args()
 
-    path = Path(sys.argv[1]).expanduser()
-    errors = validate(path)
+    errors = validate(args.path.expanduser(), strict=args.strict)
 
     if errors:
         print("REPORT VALIDATION FAILED:", file=sys.stderr)
