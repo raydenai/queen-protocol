@@ -2,6 +2,20 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.14.0 — 2026-05-09
+
+**Auto-acquire dispatch lock from prompt-file path — closes v2.13's adoption gap.**
+
+- **§29.10 NEW.** v2.13 shipped `dispatch-lock.sh acquire/release` 17 minutes before two queens dispatched EE-token-encryption again — same failure mode as the X-test-repair duplicate. Reason: the lock requires *every* dispatch path to call `acquire`. The other-tab queen ran `kimi-task.sh start --isolated` directly and never touched the lock. Adoption gap = same failure mode.
+- **`scripts/dispatch-lock-from-path.sh` shipped.** Single-arg helper that derives `colony-id` + `shard-id` from the canonical prompt-file path (`~/.claude/state/colony/<colony>/shards/<shard>/prompt.md`) and auto-invokes `dispatch-lock.sh acquire` with a SHA256 prompt-content hash for audit. Returns 0 if acquired or path is ad-hoc (not in colony state); returns 1 on conflict.
+- **`~/.claude/scripts/kimi-task.sh` patched to auto-acquire.** Inserted the dispatch-lock-from-path call after the FORCE/check_dispatch_allowed gate. Refuses dispatch with exit code 3 + clear error showing the holder. `--force` flag bypasses (operator-discipline-required for genuine "I know what I'm doing" cases).
+- **Smoke-tested live (2026-05-09):** acquired phantom lock against EE prompt → ran `kimi-task.sh start --isolated <ee-prompt>` → kimi-task.sh refused with both layered error messages and exit 3, no Kimi spawned. Released phantom → re-dispatch unblocked.
+- **Coverage gap (deferred to v2.15):** Codex dispatch via `agent:codex-rescue` Agent calls inside Claude Code is harder to wrap — the Agent dispatch happens inside the Claude binary, not a shell script we can patch. Two v2.15 options: (a) PATH-shim `codex` via SessionStart hook, (b) provide `codex-rescue-with-lock.sh` operator-side wrapper. For now, Codex stays operator-discipline; Kimi covers the higher-frequency dispatch path observed in production.
+
+**Why minor bump:** §29.10 is a new shipped script + a real behavior change in `kimi-task.sh start`. Operators no longer have to remember `dispatch-lock.sh acquire` — the wrapper does it.
+
+**Self-rated:** ~9.85/10 (up from 9.8). Closes v2.13's adoption gap. Remaining 0.15 needs `colony.sh` full state-machine kernel + multi-host fencing + Codex Agent-dispatch wrapping (v2.15).
+
 ## v2.13.0 — 2026-05-09
 
 **Per-shard dispatch lock — duplicate-dispatch failure mode closed.**

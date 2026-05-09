@@ -1,4 +1,4 @@
-# Queen Protocol v2.13.0
+# Queen Protocol v2.14.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -3003,6 +3003,61 @@ scripts/dispatch-lock.sh sweep <colony-id>                # find stale locks
 **colony-watcher integration:** v2.13's watcher adds a sweep stage that calls `dispatch-lock.sh sweep` per active colony and emits `STALE_DISPATCH_LOCK` events.
 
 **Cost:** ~10ms per lock acquire. Eliminates the duplicate-dispatch failure mode entirely.
+
+### 29.10 Auto-acquire dispatch-lock from prompt-file path (v2.14)
+
+**Real evidence (2026-05-09 19:11 vs 19:27 UTC):** v2.13 shipped `dispatch-lock.sh acquire/release`. **It immediately failed at deployment.** Two queens dispatched EE-token-encryption 17 minutes apart — the other-tab queen at 19:11:02 (Kimi PID 95024) ran `kimi-task.sh start --isolated` directly and never touched the lock; this queen at 19:27 acquired the lock against an empty dir (because the other queen had already finished and the lock script was never called by either side). Both Kimi runs completed, duplicating work and consuming caps.
+
+**Diagnosis:** the lock requires *every* dispatch path to call `acquire`. Hard contract for operators to remember. Adoption gap = same failure mode as v2.13 was supposed to close.
+
+**Rule (v2.14):** dispatch wrappers (`kimi-task.sh start`, `codex-task.sh dispatch`, `agent:codex-rescue` / `agent:kimi-rescue` Agent calls) auto-derive `colony-id` + `shard-id` from the prompt-file path and auto-acquire the lock. Operator never has to remember.
+
+**Implementation:**
+
+[`scripts/dispatch-lock-from-path.sh`](./scripts/dispatch-lock-from-path.sh) — single-arg helper:
+
+```bash
+dispatch-lock-from-path.sh <prompt-file-path> [--queen <name>]
+# Exit 0: lock acquired (or path doesn't match colony pattern → no-op for ad-hoc dispatches)
+# Exit 1: lock conflict — refuse the dispatch
+# Exit 2: config error
+```
+
+The helper greps the prompt path against the canonical colony layout:
+
+```text
+~/.claude/state/colony/<colony-id>/shards/<shard-id>/prompt.md
+```
+
+If matched, it calls `dispatch-lock.sh acquire <colony-id> <shard-id>` with a SHA256 prompt-content hash for audit. If not matched, it returns 0 (ad-hoc dispatches like `kimi-rescue` review tasks aren't tied to a colony).
+
+**`kimi-task.sh start` integration:**
+
+```bash
+# inside kimi-task.sh start, after FORCE/check_dispatch_allowed gate:
+LOCK_FROM_PATH="${HOME}/projects/queen-protocol/scripts/dispatch-lock-from-path.sh"
+if [[ "$FORCE" != "true" && -x "$LOCK_FROM_PATH" ]]; then
+  if ! "$LOCK_FROM_PATH" "$PROMPT_FILE" --queen "kimi-task-$$" >&2; then
+    echo "kimi-task.sh: dispatch refused — another queen holds the lock." >&2
+    echo "Use --force to override (NOT recommended; will produce duplicate work)." >&2
+    exit 3
+  fi
+fi
+```
+
+**Smoke-tested live (2026-05-09):** acquired phantom lock against EE prompt → ran `kimi-task.sh start --isolated <ee-prompt>` → kimi-task.sh refused with both layered error messages and exit code 3, no Kimi spawned. Released phantom → re-dispatch unblocked.
+
+**Escape hatches** (in priority order):
+
+1. `kimi-task.sh start --force <prompt>` bypasses the lock (logged for audit). Operator-discipline-required for genuine "I know what I'm doing" cases.
+2. `dispatch-lock.sh release <colony> <shard>` manually frees a stuck lock (e.g. stale holder, queen crashed).
+3. `dispatch-lock.sh sweep <colony>` finds locks where the holder PID is dead OR >4h old with no report — operator decides removal.
+
+**Coverage gap (still open for v2.15):** Codex dispatch via `agent:codex-rescue` Agent calls inside Claude Code is harder to wrap — the Agent dispatch happens inside the Claude binary, not a shell script we can patch. Two options for v2.15:
+- (a) Document a SessionStart hook that PATH-shims `codex` to call our wrapper
+- (b) Have the queen-protocol provide a custom `codex-rescue-with-lock.sh` that operators invoke instead of the agent subagent
+
+For now, Codex dispatches are still operator-discipline. Kimi covers the higher-frequency dispatch path observed in production.
 
 ### 29.8 Automated colony-watcher daemon (v2.12)
 
