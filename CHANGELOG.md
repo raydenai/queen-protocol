@@ -2,6 +2,24 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.7.0 — 2026-05-09
+
+**Multi-tab reality.** Three patches grounded in observed evidence from a parallel session running Phase A-I (27 commits in 8 hours, including a 0037→0047 migration collision caught at PR review).
+
+- **§25.15 NEW — Migration number reservation.** Real evidence: commit `fdad578` body note "Renamed from 0037 → 0047 to resolve number collision with `0037_event_fanout_columns.sql` (Phase D.1, committed in `ec1c1c2`)". Two parallel streams grabbed `0037`. Caught at review by manual renumber, but the same race could ship two production migrations with the same number to two different environments. v2.7 ships [`scripts/migration-number-reserve.py`](scripts/migration-number-reserve.py) — at PLAN, queen scans migration directory + active sibling colony plans, reserves contiguous block, writes assignment into `plan.json`. Each ant gets its number deterministically. Exit 1 on collision so queen can pause-and-coordinate.
+- **§25.16 NEW — Cross-tab version propagation.** The protocol document lives at `~/.claude/QUEEN_PROTOCOL.md` AND every Claude Code session has a frozen copy in its conversation context. No live propagation. v2.7 ships [`~/.claude/scripts/protocol-version-watcher.sh`](../.claude/scripts/protocol-version-watcher.sh) wired as a SessionStart hook. Compares current version to `~/.claude/state/last-seen-protocol-version.txt`; on bump, prints CHANGELOG entry + reminds operator to `/clear` parallel tabs. Smoke-tested: silent on second run, notice on first.
+- **§26 NEW — Multi-queen patterns (aspirational).** Documents three observed patterns: §26.1 Phase taxonomy (operator plans Phase → Colony → Shard hierarchically; not just flat colonies), §26.2 Hermes Watchman sub-queen (Kimi k2.6 auto-merges green shards, escalates revenue/security/destructive ops to operator via Telegram), §26.3 multi-tab interleaving (today's mitigations + still-unsolved gaps), §26.4 v2.8 wishlist.
+
+**Other-tab lessons captured (2026-05-08, 27 commits across Phase A-I):**
+
+- Phase B's mobile 1-field checkout, OTO downsell modal, MAB variant assigner — confirms Wave 4's CRO-first instincts are converging on the same patterns.
+- Phase D.1 + analytics sub-queen pattern (5-tab Hyros-grade dashboard) — corroborates v2.6 §25.5 dual-review-≥3 rule via the commit body line "wave-3 + wave-4 both shipped 4-5 parallel shards each."
+- Phase G's Lighthouse CI gate + k6 load tests + auto-rollback — production-readiness floor that v2.8 should consider as a §27 production-deploy contract.
+
+**Why minor bump:** §25.15 is a new enforced control with hard collision evidence. §25.16 is a new shipped control. §26 is honest aspirational scope, not a behavior change. Two operators (this queen + Hermes) running in parallel necessitate the formalization.
+
+**Self-rated:** ~9.0/10 (unchanged from v2.6). Quality didn't move because §26 is aspirational; the rating moves up again at v2.8 when sub-queen specification is enforceable.
+
 ## v2.6.0 — 2026-05-08
 
 **10-colony dogfood calibration.** Five real-evidence patches grounded in honest measurement across 10 colonies and 34 shards on 2026-05-08.

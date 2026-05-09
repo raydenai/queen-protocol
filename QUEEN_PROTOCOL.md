@@ -1,4 +1,4 @@
-# Queen Protocol v2.6.0
+# Queen Protocol v2.7.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2415,6 +2415,129 @@ A skill in `skills_loaded` that doesn't exist on disk is a hard fail (`SKILL_NON
 
 This is restored to the §25.4 hard floors list.
 
+### 25.15 Migration number reservation (v2.7 — Phase D.1 / cz_themes collision evidence)
+
+**Real evidence (2026-05-08):** commit `fdad578` carries the body note "Renamed from 0037 → 0047 to resolve number collision with `0037_event_fanout_columns.sql` (Phase D.1, committed in `ec1c1c2`)". Two parallel streams (one tab shipping Phase D.1, another tab shipping `cz_themes` site extension) both grabbed `0037` for their new migration. Caught at PR review and fixed by manual renumber, but the same race could ship two production migrations with the same number to two different environments.
+
+**Rule:** colony plans MUST declare `shards[].adds_migrations: int` for any shard creating new migration files. At PLAN, queen runs the reservation script which scans the migration directory + active sibling colony plans and writes a contiguous reserved range into `plan.json` under `reserved_migrations`. Each ant prompt is told its assigned number(s) deterministically.
+
+**Implementation:** [`scripts/migration-number-reserve.py`](./scripts/migration-number-reserve.py) — reads plan, computes reservation, detects collisions with other active colonies (state at `~/.claude/state/colony/*/plan.json`), writes back with `--write`. Exits 1 on collision so queen can pause-and-coordinate.
+
+```bash
+python3 scripts/migration-number-reserve.py \
+    --plan ~/.claude/state/colony/<id>/plan.json \
+    --migrations-dir <repo>/supabase/migrations \
+    --write
+```
+
+**Cost:** ~1 s per colony PLAN. Catches the exact failure mode that bit Phase D.1 / cz_themes.
+
+### 25.16 Cross-tab version propagation (v2.7 — multi-session reality)
+
+The Queen Protocol document lives at `~/projects/queen-protocol/QUEEN_PROTOCOL.md` (canonical clone) AND `~/.claude/QUEEN_PROTOCOL.md` (operator's copy referenced from `CLAUDE.md` chains). When a queen ships a new version:
+
+- The git push updates the public repo
+- The operator can `cp` the new file into `~/.claude/QUEEN_PROTOCOL.md`
+- BUT every Claude Code session in another tmux/iTerm tab still has the **old version frozen in its conversation context**
+
+There is no live propagation in the Claude Code agent architecture. Sessions only re-read `CLAUDE.md` + ambient docs at session start (or after `/clear` / `/compact`).
+
+**Mechanism:** [`~/.claude/scripts/protocol-version-watcher.sh`](../../.claude/scripts/protocol-version-watcher.sh) is wired as a SessionStart hook. It compares the current `head -1 ~/.claude/QUEEN_PROTOCOL.md` against `~/.claude/state/last-seen-protocol-version.txt` (per-machine, per-user, not per-session). If different, prints a notice block surfacing the latest CHANGELOG entry and reminds the operator to `/clear` other open tabs.
+
+```bash
+~/.claude/scripts/protocol-version-watcher.sh
+# Output (on first session after a bump):
+#
+# ════════════════════════════════════════════════════════════
+# Queen Protocol updated: v2.6.0 → v2.7.0
+# ════════════════════════════════════════════════════════════
+#
+# Local: /Users/<user>/.claude/QUEEN_PROTOCOL.md
+# Canonical: https://github.com/raydenai/queen-protocol
+#
+# Other open Claude Code tabs/sessions still show v2.6.0
+# in their loaded context. Run /clear in those tabs to refresh.
+```
+
+**What this does NOT solve:** it only notifies the operator. Hot in-flight Kimi/Codex background tasks still operate on whatever protocol version they captured at dispatch. Those tasks are immutable. v2.8 may add a graceful-cancel mechanism for protocol-bump-during-flight.
+
+---
+
+## 26. Multi-queen patterns (v2.7 aspirational)
+
+The protocol so far assumes **one queen per host**. Real-world deployment runs richer topologies:
+
+### 26.1 Phase taxonomy (observed pattern, 2026-05-08)
+
+Operators in production today plan at a higher granularity than colonies. Real evidence — 27 commits in 8 hours from a parallel session, all phase-tagged:
+
+```text
+Phase A.1   typed line_items + offer_snapshot kill "Unknown Product"
+Phase B     voice live-edit moat (8 tools + SSE + checkpoints)
+Phase B.1   close voice live-edit wiring gap
+Phase B.2   mobile 1-field checkout + order bumps + OTO downsell
+Phase B.3   health badge + GDPR cookie banner + ToS/Privacy/DPA
+Phase B.4   MAB variant assigner + Trigger.dev deploy
+Phase C     Customers detail + Leads kanban + Form builder
+Phase D.1   Meta CAPI + Pixel + 5-destination fanout worker
+Phase D.2-4 5-tab Hyros-grade analytics dashboard
+Phase E.1+2 message-match scoring gate + 6-section copywriter
+Phase F     react-email lifecycle + Trigger.dev cloud workflows
+Phase G     Lighthouse CI gate + k6 load tests + auto-rollback
+Phase H     Decision Engine + AI Citation scrapers + MAB
+Phase I.1   convertzap.com marketing site
+```
+
+Each Phase contains 1-N colonies; each colony contains 1-N shards. Phases are the unit of release planning; colonies are the unit of orchestration; shards are the unit of execution.
+
+**v2.7 status:** documented as observed, not enforced. v2.8 may add `phase` field to colony plans and a phase-level rollup of metrics.
+
+### 26.2 Sub-queen Watchman pattern (observed: Hermes)
+
+A second-tier queen ("Hermes") runs as a **watchman sub-queen**: it observes colonies in flight, auto-merges shards that pass all gates, and surfaces hard-gate findings to the operator via Telegram callbacks. It runs on Kimi (`kimi-coding (kimi-k2.6)`) rather than the top queen's Claude session, freeing operator attention for higher-leverage decisions.
+
+```text
+Operator (human)
+    ↓
+Top Queen (Claude Opus 4.7)         ← strategic dispatch + landing approval
+    ↓
+Hermes Watchman (Kimi k2.6)         ← gate-validation + auto-merge if green
+    ↓
+Worker ants (Claude / Kimi / Codex) ← actual code execution
+```
+
+**Hard gates that escalate to operator** (do not auto-merge):
+- Revenue path (Stripe, billing, payment routes)
+- Security path (auth, RLS, secrets, dependencies)
+- Destructive ops (DROP, force-push, delete-production-data)
+
+Everything else green = auto-merge by Hermes.
+
+**v2.7 status:** real, running in operator's environment. Documentation is reverse-engineered from telemetry. Not yet specified as a formal sub-protocol.
+
+### 26.3 Multi-tab interleaving (real, partially solved)
+
+When operator runs ≥2 Claude Code tabs against the same repo, each tab's queen is unaware of the other. Today's mitigations:
+
+- **Queen-lock (§6)** prevents two queens from RUNNING simultaneously inside the protocol's state machine
+- **§25.12 external-stream detection** flags commits and uncommitted writes between PLAN and LAND that the colony didn't author
+- **§25.16 cross-tab version propagation** notifies sessions of protocol bumps via SessionStart hook
+
+What remains unsolved:
+- **Migration numbers** — partially addressed in §25.15, but only catches collisions visible in `~/.claude/state/colony/*/plan.json`. A tab that doesn't use a colony plan (e.g., one-off `git commit`) still races
+- **Schema changes** that affect the same Pydantic models / TypeScript types across tabs — only caught at typecheck/test time
+- **Skill registry drift** — tabs that load skills at session start may see different skill versions; no central authority
+
+**v2.7 status:** see "Things v2.8 should add" below.
+
+### 26.4 Things v2.8 should add (operator wishlist as of 2026-05-08)
+
+1. **Formal sub-queen specification** — codify the Hermes pattern. Define which gates auto-merge, which escalate, callback contract.
+2. **Phase-level metrics rollup** — `~/.claude/state/phase/<phase-id>/` aggregates colonies' metrics.json into a phase-level SLI bundle.
+3. **Graceful protocol-bump-during-flight** — when version_watcher detects a bump while Kimi tasks are mid-run, surface "you may want to cancel + re-dispatch with the new prompt template."
+4. **Skill version pinning** — colony plan declares the skill commit hash it expects; queen verifies skill-cache matches before dispatch.
+5. **Real-time multi-queen coordination** — beyond migration numbers, share a "claimed work surface" registry so two tabs don't try to edit the same module concurrently. Likely needs a real distributed lock service → bumps multi-host out of v3 into v3.5.
+
 ---
 
 **The queen who follows this protocol ships verified work fast.**
@@ -2423,3 +2546,5 @@ This is restored to the §25.4 hard floors list.
 **Max-Mode exists so the queen can ship the safe stuff at lightning speed.**
 **Cross-shard invariant audits exist because the union of correct ants is not always a correct colony.**
 **External-stream detection exists because the queen-lock can't see the other tabs.**
+**Migration number reservation exists because two queens reach for `0037` at the same time.**
+**Cross-tab version propagation exists because the queen who upgraded is not the queen in the other tab.**
