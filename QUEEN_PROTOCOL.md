@@ -1,4 +1,4 @@
-# Queen Protocol v2.9.0
+# Queen Protocol v2.10.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2729,6 +2729,18 @@ The model also self-corrected on a candidate finding ("Wait, is the 'silent fall
 
 **Implication for §27.2 Tier 0:** Tier 0 pre-screen is shipping-grade for catching the cross-tenant / payment-idempotency / missing-auth / stub-code class. It is NOT a replacement for cloud dual review on architecture or cross-shard composition.
 
+### 27.13 Production-path mandatory Tier 0 + reviewer-class diversity (v2.10)
+
+**Real evidence (Elev-W1 colony, 2026-05-09):** the Stripe-touching B-cap7-wallet shard was dispatched to `kimi-isolated` AND apparently single-reviewed by Kimi (or skipped entirely). Same model writing AND reviewing money code = no adversarial signal. Retroactive Tier 0 (gemma4:31b) caught a CRITICAL `formatStripeAmount` heuristic that undercharges 100x or overcharges 100x — money-on-the-line bug that shipped through the colony's converge.
+
+**Rule (v2.10 amends §25.5):** when a shard has `production-path` tag (or any of `payment`, `auth`, `migration`, `security-critical`):
+
+1. **Tier 0 is mandatory, not optional** — `g4-task.sh review <diff> gemma4:31b` runs at converge regardless of any `--skip-tier0` flag. This is a hard floor.
+2. **Reviewer ≠ implementer model class** — if Kimi wrote the shard, the dual review must NOT also be Kimi. Allowed pairings: `(kimi-impl, codex-review + claude-review)`, `(claude-impl, kimi-review + codex-review)`, `(codex-impl, kimi-review + claude-review)`. Adversarial-diversity mandate.
+3. **Arithmetic/units bugs are a documented Tier 0 catch class.** §27.10 evidence table is updated to include "currency unit confusion (cents vs dollars), off-by-100 in financial code" alongside the structural bug classes.
+
+If a colony fails (1) or (2), `colony-converge.sh` blocks LAND with `phase: PRODUCTION_PATH_REVIEW_INSUFFICIENT` and surfaces to operator.
+
 ### 27.11 Operational gotcha — Gemma 4 thinking-mode token budget
 
 Gemma 4 (both `:31b` and `:e4b`) emits hidden reasoning into the response's `message.thinking` field BEFORE producing visible `message.content`. The Ollama `num_predict` option counts BOTH thinking + content tokens.
@@ -2772,6 +2784,89 @@ Ants and queen should always check both fields. Documented here so v2.9+ operato
 
 ---
 
+## 28. Runtime enforcement bundle (v2.10 — gates without discipline)
+
+**Real evidence (Elev-W1 colony, 2026-05-09):** another queen authored a colony with `MANIFEST.md` referencing §2.6.5, §3.6, §25.13. It then shipped 5 shard reports — **0 of 5 passed §3 schema validation.** Different reports used different non-canonical key names (`files_changed`, `files_created`, `completed_at`, `wall_minutes`, `notes`, `phase`, `cap`, `acceptance_gates`). Some had `status: "done"` (lowercase); some had `status: None`. One had `gates` as an object instead of a list. One critical money-charging bug (`formatStripeAmount` 100x undercharge/overcharge) shipped through the same colony's converge. The protocol's gates were *referenced* in the operator's MANIFEST but never *enforced* by any runtime.
+
+**This is the protocol's biggest failure mode** — and it is not a missing rule, it is a missing runtime. Until v2.10 the protocol had eight versions of correct rules and zero versions of enforced gates. v2.10 ships the enforcement bundle that makes "queen forgot to run X" structurally impossible.
+
+### 28.1 `colony-converge.sh` — single-command queen-side gate runner
+
+Located at [`scripts/colony-converge.sh`](./scripts/colony-converge.sh). Bundles every queen-side gate into one ordered run:
+
+```bash
+colony-converge.sh run <colony-id> <repo-path> [flags]
+```
+
+Gates, in order:
+
+1. **§3.6** `validate-report.py` per shard (hard fail if any report violates schema)
+2. **§28.3** Shard timeout — in-flight shards older than `deadline_minutes × 1.5` flagged as `TIMEOUT`
+3. **§25.11** `cross-shard-audit.py` if ≥2 shards share data-pattern tags
+4. **§27.2** Tier 0 (`g4-task.sh review`) per shard diff — CRITICAL findings logged to telemetry
+5. **§25.12** `git-snapshot.sh diff` — external-stream check
+
+Any gate exit non-zero → `CONVERGE_BLOCKED`, exit 1, no LAND. Operator overrides with explicit ack only.
+
+Telemetry events written for every gate run: `CONVERGE_AUDIT_START`, `CONVERGE_GATE_PASS`, `CONVERGE_GATE_FAIL`, `CONVERGE_GATE_SKIPPED`, `TIER_0_CRITICAL`, `CONVERGE_AUDIT_PASS`, `CONVERGE_BLOCKED`.
+
+**Smoke-tested against Elev-W1 (2026-05-09):** correctly returned `CONVERGE_BLOCKED` because 5/5 reports failed §3 validation. The script does what its existence says it does.
+
+### 28.2 `manifest-to-plan.py` — operator MANIFEST.md → runtime plan.json bridge
+
+Operators write human-readable `MANIFEST.md` tables to declare colony intent; runtime gates expect machine-readable `plan.json`. The two formats diverged in real practice (Elev-W1 had a MANIFEST but no plan, so cross-shard audit and migration reservation silently degraded).
+
+[`scripts/manifest-to-plan.py`](./scripts/manifest-to-plan.py) parses a standard MANIFEST shards table:
+
+```markdown
+## Shards
+
+| ID | Title | Cap# | Risk | Backend | Deadline | Files Allowed |
+|---|---|---|---|---|---|---|
+| A-cap4-edit-path | ... | #4 | Medium | kimi-isolated | 75 min | path1, path2 |
+```
+
+…and writes a `plan.json` with `shards[].id`, `ant_kind`, `priority` (mapped from Risk: Low/Medium/High/Critical → p3/p2/p1/critical), `tags` (heuristic: stripe → payment, migration → migration, etc.), `files_allowed`, `deadline_minutes`. Production-path tag auto-applied if files match Stripe / billing / migrations / .env.production.
+
+```bash
+python3 manifest-to-plan.py \
+  --colony-id 2026-05-09-elev-w1 \
+  --manifest ~/.claude/state/colony/2026-05-09-elev-w1/MANIFEST.md \
+  --write
+```
+
+Closes the operator-Markdown / runtime-JSON gap.
+
+### 28.3 Shard timeout — state-machine guard against hanging shards
+
+Real evidence: A-cap4-edit-path in Elev-W1 wrote 8+ files to its worktree but **never produced report.json**. Hours later, the colony state still says shard A is in flight. No state-machine timeout enforcement existed.
+
+**Rule (v2.10):** every shard MUST report DONE/FAILED/TIMEOUT within `deadline_minutes × 1.5`, else queen-side `colony-converge.sh` marks the shard as `TIMEOUT` and emits `CONVERGE_GATE_FAIL` with `gate: shard-timeout`. The operator either extends the deadline (re-runs colony-converge with `--shard-timeout-min N`) or kills the shard's PID and writes a `FAILED` report by hand.
+
+The `1.5×` slack absorbs LLM-latency variance; tighter ratios surface false-positive timeouts on slow Anthropic days. Tunable via plan field `shard_timeout_multiplier` (default 1.5).
+
+### 28.4 Self-test corpus (aspirational v2.11)
+
+The protocol has shipped 9 versions in 24 hours and never once dogfooded its own gates against a *known-bad* report or diff. Tonight's Elev-W1 evidence is the first real test of `validate-report.py` against an uncooperative author. The schemas held. But the protocol cannot know its catch rate against bug classes it hasn't measured.
+
+v2.11 should ship `~/projects/queen-protocol/test-corpus/` containing:
+
+- 5+ known-bad reports (each violating a different §3 invariant)
+- 5+ known-bad diffs (each containing a bug Tier 0 should catch — cross-tenant leak, race, currency-units error, missing auth, prompt injection)
+- A regression script that runs `colony-converge.sh` against each and asserts the gate that should fire DOES fire
+
+Without this, every protocol release is a self-rated claim. With it, the rating is measured.
+
+### 28.5 Routing matrix update — local-first for cheap operations
+
+Previous (v2.8 §27.6): "g4-local: best at" cheap operations.
+
+**Updated (v2.10):** g4-local is **first at** cheap operations. Cost gradient justifies inverting the routing matrix: `summarize`, `classify`, `doc-pass`, `prompt-injection-screen`, `secrets-pii-triage`, `Tier-0-prescreen` all route to `g4-local` BEFORE any cloud worker. Cloud workers run only as second pass when local flags or warns.
+
+Per-dollar-of-bug-prevented justification (2026-05-09 measurement): Tier 0 caught a critical money-charging bug at $0 cost / 406s. Cheapest cloud equivalent (Kimi review) catches the same class at $0.05 / 30s. Per-bug-caught: g4-local infinity better. Per-second-saved: Kimi 13× better. The cost gradient inverts when the bug costs more than the time.
+
+---
+
 **The queen who follows this protocol ships verified work fast.**
 **The queen who skips steps either ships broken work or ships slowly.**
 **The protocol exists so the queen doesn't have to remember which.**
@@ -2781,3 +2876,4 @@ Ants and queen should always check both fields. Documented here so v2.9+ operato
 **Migration number reservation exists because two queens reach for `0037` at the same time.**
 **Cross-tab version propagation exists because the queen who upgraded is not the queen in the other tab.**
 **Local LLM workers exist because the cheap class of bug should not consume frontier-model tokens.**
+**Runtime enforcement exists because the queen who can skip a gate eventually does.**

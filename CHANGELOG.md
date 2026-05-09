@@ -2,6 +2,23 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.10.0 — 2026-05-09
+
+**Runtime enforcement bundle.** v2.4–v2.9 added 9 versions of correct rules and 0 versions of enforced gates. Tonight's Elev-W1 colony evidence (another queen, another tab) shipped 5 shard reports of which **0 passed §3 schema validation**, plus a CRITICAL money-charging bug (`formatStripeAmount` 100x undercharge/overcharge) caught only by retroactive Tier 0 review. The protocol's gates were *referenced* in the operator's MANIFEST but never *enforced* by any runtime. v2.10 closes that gap.
+
+- **§28 NEW — Runtime enforcement bundle.** Documents the protocol's biggest failure mode honestly: until v2.10 there was zero enforcement layer. The eight versions of correct rules turned out to be insufficient against an uncooperative queen.
+- **§28.1 NEW — `scripts/colony-converge.sh`.** Single-command queen-side gate runner. Bundles `validate-report.py` (per shard), shard timeout check, `cross-shard-audit.py`, Tier 0 (`g4-task.sh review`), and `git-snapshot.sh diff` into one ordered run. Any gate non-zero → `CONVERGE_BLOCKED`, exit 1, no LAND. Smoke-tested against Elev-W1 — correctly returned `CONVERGE_BLOCKED` because 5/5 reports failed §3 validation.
+- **§28.2 NEW — `scripts/manifest-to-plan.py`.** Operators write human-readable `MANIFEST.md` tables; runtime gates need `plan.json`. The two diverged in real practice (Elev-W1 had MANIFEST but no plan, so cross-shard audit + migration reservation silently degraded). Script parses standard MANIFEST shards table → emits `plan.json` with risk→priority mapping, heuristic tag extraction, production-path auto-tag.
+- **§28.3 NEW — Shard timeout state-machine guard.** Real evidence: Elev-W1 shard A wrote 8+ files but never produced report.json — colony state still says in-flight hours later. Rule: every shard MUST report DONE/FAILED/TIMEOUT within `deadline_minutes × 1.5`, else `colony-converge.sh` marks `TIMEOUT` and emits `CONVERGE_GATE_FAIL`. Tunable via `shard_timeout_multiplier` (default 1.5).
+- **§28.4 ASPIRATIONAL v2.11 — Self-test corpus.** The protocol shipped 9 versions in 24 hours and never dogfooded its own gates against known-bad inputs. v2.11 should ship `test-corpus/` with 5+ known-bad reports and 5+ known-bad diffs that every release runs `colony-converge.sh` against. Without this, every protocol release is a self-rated claim.
+- **§28.5 — Routing matrix update: local-first for cheap operations.** v2.8 had g4-local as "best at" cheap operations. v2.10 makes it "first at" — `summarize`, `classify`, `doc-pass`, `prompt-injection-screen`, `secrets-pii-triage`, `Tier-0-prescreen` route to g4-local BEFORE any cloud worker. Per-bug-caught: g4-local infinity better than cloud at $0 cost.
+- **§27.13 NEW — Production-path mandatory Tier 0 + reviewer-class diversity.** Real evidence: Elev-W1's Stripe-touching B-cap7 was implemented AND single-reviewed by Kimi (or skipped entirely). Same model writing AND reviewing money code = no adversarial signal. Rule: when a shard has `production-path` / `payment` / `auth` / `migration` / `security-critical` tag, (1) Tier 0 is mandatory regardless of `--skip-tier0`, and (2) reviewer model class MUST differ from implementer. Allowed pairings: `(kimi-impl, codex+claude review)`, `(claude-impl, kimi+codex review)`, `(codex-impl, kimi+claude review)`. `colony-converge.sh` blocks LAND with `phase: PRODUCTION_PATH_REVIEW_INSUFFICIENT` if violated.
+- **§27.10 evidence table updated** — Added arithmetic/units bug class as a documented Tier 0 catch (currency unit confusion, off-by-100 in financial code). The `formatStripeAmount` 100x bug is the canonical example.
+
+**Why minor bump:** Three NEW shipped scripts (`colony-converge.sh`, `manifest-to-plan.py`, plus enhanced `g4-task.sh` from v2.9). One new gate-tier rule for production paths. Behavior change visible to every operator: runtime now enforces what was previously discipline-only.
+
+**Self-rated:** ~9.5/10 (up from 9.4). The 0.5 jump comes from closing the protocol-document/runtime gap I identified as the #1 failure mode in v2.7 §26.4 wishlist. The remaining 0.5 is a real `colony.sh` runtime kernel that runs the full state machine (not just converge), plus the §28.4 self-test corpus, plus multi-host fencing → v3.
+
 ## v2.9.0 — 2026-05-09
 
 **Tier 0 calibration with real evidence.** v2.8 documented the Local LLM tier; v2.9 dogfoods it. Three controlled tests on the actual `gemma4:31b` + `gemma4:e4b` Ollama stack ran during a "before-shipping-v2.9" gate, producing field measurement of catch rates and surfacing one operational gotcha worth documenting.
