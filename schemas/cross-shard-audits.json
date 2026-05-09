@@ -1,0 +1,106 @@
+{
+  "$schema_version": "1.0",
+  "description": "Canonical rg queries per data-pattern tag. Run by cross-shard-audit.py at converge when colony plan declares ≥2 shards with overlapping tags. v2.5 §25.11.",
+  "tags": {
+    "idempotency": {
+      "description": "Idempotency caches keyed correctly + concurrency-safe",
+      "default_paths": ["apps/api/src/routes/", "apps/api/src/integrations/"],
+      "queries": [
+        {
+          "name": "cache_keyed_by_str_only",
+          "type": "must_not_match",
+          "rg": "_idempotency_cache:\\s*dict\\[str,",
+          "remediation": "Re-key by (workspace_id, idempotency_key) tuple; e.g. dict[tuple[UUID, str], tuple[UUID, datetime]]"
+        },
+        {
+          "name": "tenant_scoped_tuple_key",
+          "type": "must_match",
+          "rg": "_idempotency_cache:\\s*dict\\[tuple\\[",
+          "remediation": "Cache type annotation must declare a tuple key. If using dict[str, ...] the tenant scoping is missing."
+        },
+        {
+          "name": "async_write_without_lock",
+          "type": "must_not_match",
+          "rg": "async\\s+def\\s+\\w+.*\\n[\\s\\S]{0,400}_idempotency_cache\\[.+\\]\\s*=",
+          "remediation": "Wrap the read-check-write window with `async with <lock>:`. TOCTOU race exists otherwise."
+        }
+      ]
+    },
+    "cache": {
+      "description": "Generic in-memory caches in async routes",
+      "default_paths": ["apps/api/src/"],
+      "queries": [
+        {
+          "name": "module_level_dict_cache_no_eviction",
+          "type": "must_match_if_present",
+          "rg": "^_\\w*_cache:\\s*dict",
+          "guard_rg": "_evict|TTL|expires_at|.*WINDOW",
+          "remediation": "Module-level dict caches grow unbounded. Add an eviction helper invoked on each write or via a periodic GC."
+        }
+      ]
+    },
+    "lock": {
+      "description": "asyncio.Lock declared and actually used",
+      "default_paths": ["apps/api/src/"],
+      "queries": [
+        {
+          "name": "lock_declared_but_unused",
+          "type": "must_match_if_declared",
+          "rg": "asyncio\\.Lock\\(\\)",
+          "guard_rg": "async with .+_lock",
+          "remediation": "Lock declared but no `async with` usage found. Either use it or remove it."
+        }
+      ]
+    },
+    "auth": {
+      "description": "workspace_id derived from auth/query, not body alone",
+      "default_paths": ["apps/api/src/routes/"],
+      "queries": [
+        {
+          "name": "body_only_workspace_id_in_route_handler",
+          "type": "must_not_match",
+          "rg": "request\\.workspace_id",
+          "guard_rg": "if request\\.workspace_id !=|workspace_id:\\s*WorkspaceIdQuery",
+          "remediation": "Route uses request.workspace_id but does not validate it against a query/auth-derived workspace_id. Add WorkspaceIdQuery dependency + 400 on mismatch."
+        }
+      ]
+    },
+    "rate-limit": {
+      "description": "Rate-limit buckets keyed by tenant",
+      "default_paths": ["apps/api/src/middleware/", "apps/api/src/integrations/"],
+      "queries": [
+        {
+          "name": "rate_bucket_keyed_by_str_only",
+          "type": "must_not_match",
+          "rg": "_rate.*_bucket.*:\\s*dict\\[str,",
+          "remediation": "Rate-limit buckets must scope by (workspace_id, identifier) to prevent cross-tenant blast radius."
+        }
+      ]
+    },
+    "validation-guard": {
+      "description": "Pydantic models with strict extra='forbid' on production routes",
+      "default_paths": ["apps/api/src/schemas/", "apps/api/src/routes/"],
+      "queries": [
+        {
+          "name": "production_request_model_extra_ignore_default",
+          "type": "informational",
+          "rg": "class \\w+Request\\(BaseModel\\):",
+          "guard_rg": "model_config = ConfigDict\\(extra=",
+          "remediation": "INFO: BaseModel without extra='forbid' silently drops misnamed fields. Acceptable for forwards-compat; evaluate per-route."
+        }
+      ]
+    },
+    "multi-tenant-key": {
+      "description": "Generic tenant-scoping discipline across data structures",
+      "default_paths": ["apps/api/src/"],
+      "queries": [
+        {
+          "name": "dict_key_workspace_aware",
+          "type": "informational",
+          "rg": ":\\s*dict\\[str,.*\\]\\s*=\\s*\\{\\}",
+          "remediation": "INFO: dict[str, ...] at module level may need tenant scoping. Review the key semantics."
+        }
+      ]
+    }
+  }
+}

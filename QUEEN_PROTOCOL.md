@@ -1,4 +1,4 @@
-# Queen Protocol v2.5.0
+# Queen Protocol v2.6.0
 
 The operating contract when Claude Code runs as a queen over a colony of polymorphic worker ants — child Claude Code sessions in tmux panes, background Kimi tasks in worktrees, Codex sidecars, foreground Anthropic subagents.
 
@@ -2184,7 +2184,7 @@ All `max_speed_overrides` keys are optional; omitted keys take the v2.3.3 defaul
 |---|---|---|---|
 | **§2.2.5 PLAN checkpoint** | Required for `priority: critical` OR >10 shards OR production-path globs | **Skipped unless production-path glob detected.** Critical shards still trigger it. | ~5 min/colony |
 | **§3.1 step 5 gate re-run** | Queen re-runs **every** gate from `report.json` | **Sample-rate**: queen re-runs `1 in N` gates probabilistically (`gate_rerun_sample_rate`, default N=3). Sampling is per-colony deterministic via `idempotency_key` so repeated runs catch the same lies. | 5–10 min on multi-shard colonies |
-| **§2.7 Tier-2 dual review** | `kimi:review` AND `codex:review` parallel single-message | **Single review** (alternates kimi/codex per colony based on colony-id hash). | ~3 min/colony |
+| **§2.7 Tier-2 dual review** | `kimi:review` AND `codex:review` parallel single-message | **Single review for ≤2-shard colonies; auto-promotes to dual review at ≥3 shards** (v2.6 calibration — 10-colony day 2026-05-08 found single review missed every cross-shard composition bug; the savings vanish anyway above 2 shards because review almost always finds something). | ~3 min only on small clean colonies |
 | **§9.1 skill-grep verification** | Required on write shards | **Accept `skills_loaded` as advisory always** (matches §3.1 audit-shard exception, extended to write shards in max-mode) | ~30s/shard |
 | **Tournament/branching (§12)** | Available on tag | **Hard-disabled** unless individual shard sets `mode: "default"` | Cost saving more than speed |
 
@@ -2200,6 +2200,8 @@ These remain enforced regardless of mode — security + correctness invariants:
 - **§18.0** (single-host deployment scope — max-mode still single-host; do not deploy across machines)
 - **§2.6.5 CONVERGE checkpoint** when production paths are touched (max-mode does NOT skip this; security review of payment/auth/migration changes always blocks LAND)
 - **§25.11 cross-shard invariant audit** when ≥2 shards share data-pattern tags (cache/idempotency/lock/auth/etc.) — catches the cross-shard composition bugs that single-shard review misses
+- **§25.12 external-stream detection** — PLAN-time git snapshot vs LAND-time diff catches parallel-tab writes the queen-lock can't see
+- **§25.14 skill-grep verification** — restored from advisory; queen verifies every `skills_loaded` path actually exists on disk
 
 ### 25.5 Per-shard escape — `priority: critical` forces default mode
 
@@ -2346,6 +2348,73 @@ Each tag has a small set of canonical queries, codified in `~/.claude/state/colo
 
 **Interaction with §25.4 hard floors:** in max-mode this audit IS a hard floor — single review at converge doesn't catch cross-shard composition bugs. Default mode benefits too, but the dual-review default already partially compensates.
 
+**Implementation (v2.6 — actually shipped):**
+
+- [`schemas/cross-shard-audits.json`](./schemas/cross-shard-audits.json) — canonical rg queries for tags `idempotency`, `cache`, `lock`, `auth`, `rate-limit`, `validation-guard`, `multi-tenant-key`.
+- [`scripts/cross-shard-audit.py`](./scripts/cross-shard-audit.py) — runner. Reads colony plan, checks for ≥2-shard tag overlap, executes queries, writes `CROSS_SHARD_AUDIT_RESULT` event to telemetry, exits 1 on fail. Queen runs at converge before LAND.
+- ~30 s typical runtime; deterministic; cheap.
+
+### 25.12 External-stream detection (v2.6 — Colony 10 calibration)
+
+The queen-lock prevents two queens from running simultaneously. It does NOT prevent external automation (`kimi-task.sh` background workers, scheduled CRON jobs, IDE plugins, manual `git pull`s) from writing to the same repo while a colony is mid-flight.
+
+**Real evidence (2026-05-08):** while landing Colony 10, a Kimi background task in another tab committed `18ebc90` (`feat(api): Phase 0 production safety gates`) — adding `check_launch_rate_limit` to `routes/projects.py` AFTER my Colony 10 LAND. Tests passed by luck. With unfortunate interaction, the colony's freshly-landed test_projects.py would have broken.
+
+**Rule:** at PLAN, queen captures HEAD sha + dirty manifest. At LAND, queen diffs current state against the snapshot. Any HEAD movement or unexpected file mutations that the colony didn't author surface as `EXTERNAL_ACTIVITY` and block LAND until the operator acks.
+
+**Implementation:** [`scripts/git-snapshot.sh`](./scripts/git-snapshot.sh) — two subcommands.
+
+```bash
+# At PLAN
+scripts/git-snapshot.sh snapshot <colony-id> <repo-path>
+
+# At LAND, before merge/release
+scripts/git-snapshot.sh diff <colony-id> <repo-path>
+# exit 0 = clean
+# exit 1 = external activity → surface JSON report to operator
+```
+
+The diff JSON lists `external_commits` (HEAD sha range) and `external_writes` (files clean at PLAN, dirty now). Operator either acks ("intentional, parallel stream is OK") or pauses the LAND.
+
+**Cost:** ~1 s per snapshot; `git status --porcelain` + `git rev-parse`.
+
+**What this catches that §6 (lock) does not:** the queen-lock guards against another queen. This guards against everything else writing to the same repo.
+
+### 25.13 Per-phase wall-clock telemetry (v2.6 — calibration)
+
+The v2.3.4 speedup math (§25.7) projected 2.0–2.7× sustained max-mode speedup. **Real measurement across 10 colonies on 2026-05-08:** wall-clock variance was 18 min (smallest, clean colony) to 90 min (Colony 10, dual-review found 7 issues, fix loop). The projected `~11 min` only holds when reviews are no-ops.
+
+**Rule:** every colony writes per-phase durations to telemetry, not just total wall-clock. Phases: `SURVEY`, `PLAN`, `DISPATCH`, `WATCH`, `CONVERGE`, `VERIFY`, `LAND`.
+
+```jsonl
+{"event": "PHASE_START", "phase": "DISPATCH", "ts": "2026-05-08T18:30:00Z"}
+{"event": "PHASE_END",   "phase": "DISPATCH", "duration_seconds": 412, "ts": "2026-05-08T18:36:52Z"}
+```
+
+After ≥10 max-mode colonies, the speedup chart can be grounded in real data per phase. If `CONVERGE` is consuming 60%+ of wall-clock (as Colony 10 did), max-mode's "skip dual review" optimization is worth nothing — the bottleneck has shifted to the review-fix loop.
+
+**No script required** — queen emits these events directly. Aggregation is operator's choice (`jq` against `~/.claude/state/colony/*/log/telemetry.jsonl` is fine for v2.6).
+
+### 25.14 Skill-grep verification at converge (v2.6 — discipline floor)
+
+Every ant prompt is required to include a "Skills to load first" block (§9.1). v2.5 max-mode demoted skill-grep to "advisory always." After 10 colonies, this is a calibration mistake — 100% of ants reported `skills_loaded: [...]` with the listed paths, but the queen never verified the ant ACTUALLY loaded them. The reports were trust-only.
+
+**Rule (v2.6):** at converge, queen runs:
+
+```bash
+# For each shard with non-empty skills_loaded in its report:
+for skill_path in $(jq -r '.skills_loaded[]' shards/<id>/report.json); do
+    test -f "$skill_path" || echo "SKILL_NOT_FOUND: $skill_path"
+    # Optionally: rg the ant's diff_summary for skill-content references
+done
+```
+
+A skill in `skills_loaded` that doesn't exist on disk is a hard fail (`SKILL_NONEXISTENT`). A skill that exists but whose canonical patterns appear nowhere in the diff is a soft warning (`SKILL_NOT_APPLIED`) — operator decides.
+
+**Cost:** trivial. **Catches:** hallucinated skill paths, ants that listed skills to satisfy the prompt without reading them.
+
+This is restored to the §25.4 hard floors list.
+
 ---
 
 **The queen who follows this protocol ships verified work fast.**
@@ -2353,3 +2422,4 @@ Each tag has a small set of canonical queries, codified in `~/.claude/state/colo
 **The protocol exists so the queen doesn't have to remember which.**
 **Max-Mode exists so the queen can ship the safe stuff at lightning speed.**
 **Cross-shard invariant audits exist because the union of correct ants is not always a correct colony.**
+**External-stream detection exists because the queen-lock can't see the other tabs.**

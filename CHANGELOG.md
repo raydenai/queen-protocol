@@ -2,6 +2,20 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.6.0 — 2026-05-08
+
+**10-colony dogfood calibration.** Five real-evidence patches grounded in honest measurement across 10 colonies and 34 shards on 2026-05-08.
+
+- **§25.11 implementation now actually shipped.** v2.5 documented the cross-shard invariant audit rule but referenced a `cross-shard-audits.json` file that didn't exist. v2.6 ships [`schemas/cross-shard-audits.json`](schemas/cross-shard-audits.json) (canonical rg queries for `idempotency`, `cache`, `lock`, `auth`, `rate-limit`, `validation-guard`, `multi-tenant-key`) and [`scripts/cross-shard-audit.py`](scripts/cross-shard-audit.py) (~30 s runtime, deterministic, writes `CROSS_SHARD_AUDIT_RESULT` to telemetry, exits 1 on fail).
+- **§25.12 NEW — External-stream detection.** While landing Colony 10 on 2026-05-08, a `kimi-task.sh` background worker in another tab committed `18ebc90` (Phase 0 safety gates) — adding `check_launch_rate_limit` to `routes/projects.py` AFTER the colony's LAND. Tests passed by luck. Queen-lock guards against another queen; it does NOT see other automation. v2.6 ships [`scripts/git-snapshot.sh`](scripts/git-snapshot.sh) — captures HEAD sha + dirty manifest at PLAN, diffs at LAND, blocks with `EXTERNAL_ACTIVITY` until operator acks.
+- **§25.5 calibration — Dual review auto-promotes at ≥3 shards.** v2.5 max-mode default of "single review at converge" is honest only on tiny clean colonies. Across 10 colonies on 2026-05-08, Colonies 9 + 10 each had ≥4 shards and dual review found 1 + 7 issues respectively that single review would have missed (including 2 cross-tenant safety bugs). The 3-min review savings vanish above 2 shards anyway because review almost always finds something. New rule: max-mode runs single review only when the colony has ≤2 shards.
+- **§25.13 NEW — Per-phase wall-clock telemetry.** v2.3.4 projected 2.0–2.7× sustained max-mode speedup. Real measurement across 10 colonies: 18 min (clean) to 90 min (Colony 10, 7 review findings + fix loop). The projection holds only when reviews are no-ops. v2.6 mandates `PHASE_START`/`PHASE_END` telemetry events for `SURVEY/PLAN/DISPATCH/WATCH/CONVERGE/VERIFY/LAND` so future speedup claims can be grounded in real distributions, not hopium.
+- **§25.14 calibration — Skill-grep verification restored.** v2.5 max-mode demoted skill-grep to "advisory always." After 10 colonies, 100% of ants reported `skills_loaded` paths but the queen never verified the paths existed on disk or that the skill content actually appeared in the diff. Restored to §25.4 hard floors as cheap discipline floor: `test -f` per skill_path is mandatory; rg of skill content in diff_summary is soft warning.
+
+**Why minor bump (not patch):** §25.12 + §25.13 are new enforced/observable controls. §25.5 dual-review-on-≥3-shards is a behavior change visible to every operator. §25.11 went from documented-only to actually-shipped (script + JSON). §25.14 is restored discipline.
+
+**Self-rated:** ~9.0/10. Up from 8.7 because v2.6 closes the gap between the protocol document and what the protocol actually enforces. The aspirational/enforced split in the README shrunk: 4 items moved from aspirational to enforced this release.
+
 ## v2.5.0 — 2026-05-08
 
 **Cross-shard invariant audit (Colony 10 calibration).**
