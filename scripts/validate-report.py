@@ -36,7 +36,12 @@ REQUIRED = {
     "duration_seconds",
     "ant_kind",
 }
-ALLOWED_EXTRAS = {"audit_findings", "findings", "verdict", "mode", "extra"}
+ALLOWED_EXTRAS = {
+    "audit_findings", "findings", "verdict", "mode", "extra",
+    # v2.10.1 calibration: Elev-W1 colony (2026-05-09) used `queen_notes` as
+    # a deliberate annotation slot on multiple shard reports. Schema accepts.
+    "queen_notes", "operator_notes",
+}
 VALID_STATUS = {"DONE", "FAILED", "TIMEOUT"}
 VALID_GATE_STATUS = {"PASS", "FAIL", "SKIP"}
 
