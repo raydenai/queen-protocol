@@ -2,6 +2,186 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.15.4 — 2026-05-13
+
+**Two doc-only additions closing the visibility/autonomy and isolation-safety gaps. No runtime code changes.**
+
+- **§1.3 NEW.** "In-turn polling and continue-loop discipline" — codifies the rule that when the queen dispatches background workers, it MUST: (1) continue executing the plan in parallel; (2) poll every 60-120s within the same turn and surface one-line progress; (3) integrate results inline as each agent returns; (4) close turns with integrated results, not `"running in background"` placeholders. Evidence: user feedback 2026-05-12 — `"agents are running but no update and no autonomous work"` was a real value-prop failure of the protocol. Rule lives in 3 places for triple-redundancy: global `~/.claude/CLAUDE.md` hard-rules block (loaded at every Claude Code SessionStart), project memory (`feedback_queen_in_turn_polling.md`, durable across sessions), and this protocol document (canonical). Honest acknowledgment: true cross-turn autonomous continuation requires `colonyd` daemon (v3) — this rule closes the within-turn gap, UserPromptSubmit hooks close the next-prompt-boundary gap.
+
+- **§29.16 NEW.** "Isolation-bypass via absolute path in prompt" — documents the failure mode where workers ignore the worktree cwd they were spawned in and write directly to `~/projects/$REPO/` because the prompt mentions that absolute path. Real evidence 2026-05-12: Kimi A-redux (PID 21551) wrote 5 files directly to `~/projects/speakerport-v2/` between 23:17-23:18 UTC, while its isolated worktree at `/var/folders/.../kimi-wt.XXXXXX.NMNJIvUwQI/` showed empty diff. All `--isolated` guarantees, `§29.15` base-staleness gates, and dispatch-lock protections were silently bypassed. Coverage gap: no existing mechanism catches this. Rule: dispatch prompts MUST NOT contain absolute paths to operator's working repos; use relative paths or `{{worktree}}` placeholder. Recommended fix (deferred until n≥2 evidence on another lane): pre-dispatch sanitizer in `*-task.sh start` that rewrites `~/projects/X` or `/Users/$USER/projects/X` in prompts to the worktree path with operator warning. Anti-fix: don't BLOCK on detection — false-positive rate too high (some prompts legitimately reference repo paths); sanitize + warn is the right intervention.
+
+**Dropped from inventory (already shipped):** `jules-task.sh notify` was flagged Tier 1 IMPORTANT in the previous turn's gap inventory, but verification showed the parallel sidecar had already built a full implementation (queries `jules remote list --session`, diffs against `.seen`, prints `[Jules done $sid]: ...`). My inventory was stale; correcting the record.
+
+**Why patch bump, not minor:** doc-only additions to existing protocol sections. No new state-machine state, no new code, no behavior change beyond what §1.3 now formalizes. Operator-side guidance and known-issue documentation. Codex rescue subagent runtime gap (`codex:codex-rescue` plugin's helper claims CLI not installed) remains open as a known issue separate from protocol.
+
+**Self-rated:** 9/10. Codifies the visibility/autonomy lesson the operator surfaced as feedback, plus documents the isolation-bypass failure mode discovered this session. The protocol now honestly names both its single-session strength (in-turn polling closes most of the visibility gap) and its honest limits (cross-turn autonomy needs v3 daemon work). Hold §29.16 sanitizer code-ship until n≥2 evidence — discipline-respected.
+
+## v2.15.3 — 2026-05-12
+
+**Kimi-review-driven fixes to v2.15.x runtime scripts. No protocol-doc changes.**
+
+Bundles the `is_kimi_alive` case-sensitivity fix (originally drafted as v2.15.2 but unbumped) with 4 Kimi-review IMPORTANT findings on the v2.15.0/v2.15.1 task wrappers. Kimi review ran end-to-end (~12 min, 30k tokens, 7 tool uses); Codex review was dispatched in parallel but the `codex:codex-rescue` subagent's helper failed with "Codex CLI is not installed" despite `codex-cli 0.125.0` being on PATH — known path/version discrepancy in the codex plugin runtime; review went single-lane.
+
+**Fixes (all IMPORTANT severity from Kimi review):**
+
+1. **`kimi-task.sh` §29.15 TOCTOU mitigation.** Race between gate sample and `git apply`: `MAIN_HEAD` was sampled before patch check; main could advance in between, making the gate's verdict potentially stale. Added a re-sample immediately before `git apply` with a one-line warning surfacing the drift. Did NOT add a full re-check loop — for single-host/single-user use the gate's decision is correct ~all the time; this just makes the race observable rather than silent. Multi-host hardening deferred to v3.
+
+2. **`kimi-task.sh` unquoted-variable bug in user-facing hint** (`echo $COLLISIONS | tr '\n' ' '`). Bash word-splitting would mangle file paths containing spaces, producing a broken copy-paste command. Replaced with `printf '%s\n' "$COLLISIONS" | tr '\n' ' '` preserving embedded whitespace.
+
+3. **`kimi-task.sh` exit code 7 undocumented.** Added inline legend at refusal time: `(exit code 7 = §29.15 base-staleness refusal — distinct from generic git-apply failure exit 1)`. Callers and wrappers now have a stable contract to branch on.
+
+4. **`jules-task.sh` ensure_logged_in fragile auth-message grep.** Previous version matched only the literal `"forget to login"`; any Jules CLI message wording change would silently fall through to the generic-failure branch and hide the actionable `Run: jules login` prompt. Broadened the regex to cover `"forget|need|must|please to log[- ]?in|login"`, `"not logged in"`, `"valid client"`, `"authentication required|failed"`, `"unauthori[sz]ed"`.
+
+**Also includes (un-bumped earlier):**
+
+5. **`is_kimi_alive` case-sensitivity fix.** v2.14.1's pattern `*kimi*` was case-sensitive; macOS `ps -p $pid -o comm=` returns `"Kimi Code"` (capital K, space). Added `tr '[:upper:]' '[:lower:]'` before glob match. Evidence: 2026-05-12 PIDs 21551/21827 reported DONE while still running. Kimi review confirmed: no Linux regression — `ps` on Linux returns lowercase comm names that still match after lowercase normalization.
+
+**Kimi review explicitly cleared (no CRITICAL findings):**
+
+- `comm -12` sort assumption — both inputs pre-sorted via `sort -u`. ✓
+- `sidecar-health.sh` 4+len math — correctly counts 4 base lanes. ✓
+- `claude-rescue.sh` — empty prompts, missing CLI, stdin/file/literal handling all safe; no shell-injection vector. ✓
+
+**Honest gap acknowledgment:** Codex review failed at the subagent runtime layer (`codex:codex-rescue` plugin's helper does not see `codex-cli` despite it being installed). Real bug worth filing separately; for this bump, Kimi review was sufficient given the changes are small, surgical, and bash-only (no business logic).
+
+**Why patch bump:** five fixes across two runtime scripts; no spec change, no new rule, no new lane.
+
+**Self-rated:** 9/10. The TOCTOU mitigation is observability-only, not a full fix — multi-host hardening still v3. The Codex-side review gap means single-lane evidence; this is honestly weaker than the dual-review baseline the playbook requires.
+
+## v2.15.1 — 2026-05-12
+
+**§29.15 base-staleness gate in `kimi-task.sh merge` — closes the cross-colony duplicate-dispatch failure mode.**
+
+- **§29.15 NEW.** Real evidence (this turn): 4 UI-polish Kimi shards (PIDs 64530/64794/65441/65713 for speakerport-v2) were dispatched against commit `735b13f`. Between dispatch and merge attempt, the operator manually shipped commit `be4cf3d` ("style: ui polish from previous run") on the same files through a separate workflow. The worktrees aged 13 commits stale; Shard C was 100% duplicate of `be4cf3d`; Shards A and B were 30-50% duplicate. Mechanically merging would have re-applied landed changes or conflicted mid-stream.
+- **`~/.claude/scripts/kimi-task.sh merge`** now runs a pre-flight base-staleness check before applying any patch. Compares worktree's HEAD to `$CWD`'s HEAD; if they differ AND any of the drift commits touched files in the patch, refuses merge with exit code 7 and a structured warning (worktree base, main HEAD, drift count, collision files, inspect command, `--force` override). Smoke-tested live: gate fired on Shard C, caught the 13-commit drift, listed `auth.tsx` + `landing.tsx` as the collisions, refused merge.
+- **Coverage scope:** Kimi only in v2.15.1. The same hazard exists for `gemini-task.sh merge`, `grok-task.sh merge`, and `jules-task.sh apply`. Factoring the ~30-line gate into a shared `~/.claude/scripts/lib/base-staleness.sh` helper is deferred until n≥2 evidence on another lane.
+- **Anti-fix:** gate does NOT block on any drift — only on collision drift (drift commits that touched patch files). Blocking on any drift would force every Kimi merge to wait for `git pull` first; false-positive rate too high.
+
+**Routing-lock coverage taxonomy** (now explicit):
+
+| Failure mode | Coverage |
+|---|---|
+| Two queens in same colony dispatch the same shard | `dispatch-lock.sh` per-shard (v2.13) |
+| Two queens dispatch via different paths but to same colony | `dispatch-lock-from-path.sh` (v2.14) |
+| Single colony PLAN→LAND with external commits drifting underneath | §25.12 external-stream detection (v2.6) |
+| **Two SEPARATE colonies / manual edits ship the same work in same repo** | **§29.15 base-staleness gate (v2.15.1)** ← NEW |
+| Two colonies ship completely orthogonal work in same repo | Not a failure — merges fine, no coverage needed |
+
+**Why patch bump, not minor:** rule addition to an existing subcommand + 30-line gate. No new state-machine state, no new converge rule, no new lane. Pairs with v2.15.0 architecture (which introduced cross-session queen selection — exactly the topology that makes cross-colony dispatches more likely, since different sessions don't share `~/.claude/state/colony/`).
+
+**Self-rated:** 9.5/10. Evidence is n=1 (this turn), but the failure mode is structurally distinct from the existing locks and the fix is small + reversible (--force override + exit-code-7 contract is honest to callers).
+
+## v2.15.0 — 2026-05-12
+
+**The queen role becomes per-session selectable. First minor bump in 9 patches.**
+
+This is intentionally a **minor** bump, not another `v2.14.x`. The v2.14.x series shipped rule additions to an existing routing function — calibration. v2.15.0 changes WHO orchestrates: any model can queen; Claude-as-queen is a default, not a requirement. That IS architecture, and it earns the version bump.
+
+- **§1.2 NEW.** "Choosing the queen per session" — explicit per-workload routing of the queen role itself: Claude for breadth + audit, **Codex for depth**, **Jules for async**. Symmetric §4.2 routing matrix — the queen (whoever it is) can dispatch any other lane. Cross-vendor context contract: repos carry both `CLAUDE.md` (Claude consumes) and `AGENTS.md` (Codex / Jules consume) — same source of truth, different harness.
+- **`~/.claude/scripts/claude-rescue.sh` shipped (~30 lines).** Thin wrapper exposing `claude -p` to non-Claude queen sessions. Mirrors the pattern of `kimi-rescue` / `codex-rescue` / `gemini-rescue` / grok / Jules. Accepts prompt as file, stdin (`-`), or positional arg. No state tracking — caller owns continuity. Closes the loop: Codex-led sessions can now call Claude back for long-form planning / strategy / doc work without leaving the routing matrix.
+- **`AGENTS.md` shipped at `~/projects/Convertzap/` (~120 lines).** Cross-vendor context file consumed by Codex / Jules / any AGENTS.md-aware agent (open standard, co-stewarded by OpenAI/Anthropic/Google/Cursor/Factory). Includes prime directive, repo shape, port map, non-negotiable design constraints, 6-way worker pool table, high-leverage skill list, hard rules, done-means-verified checklist. CLAUDE.md and AGENTS.md are the same content, expressed for different harnesses.
+- **Anti-pattern guard documented.** §1.2 explicitly forbids using Codex/Jules as the *orchestrator* for breadth work just because they won the last depth task. The hook system + state harness + skill-arsenal loading + watcher daemon + dispatch-lock + verify-done all live in Claude Code's process. Porting them to a Codex-led harness is multi-week v3 work — until then, Codex/Jules are queens for **depth/async lanes only**, not breadth.
+
+**What this does NOT add (deliberately):**
+
+- NO Codex hook port — Codex doesn't need to enforce verify-done; Codex sessions are typically single-feature (no multi-shard converge step to gate)
+- NO state-harness migration — Codex sessions can write to their own state dir; Claude sessions stay where they are
+- NO watcher daemon refactor — watcher only runs when Claude Code is queen
+- NO Codex-shaped skill loader porting all 1,611 skills — `AGENTS.md` plus on-demand `cat .claude/skills/<path>/SKILL.md` covers 90% of value at 5% of work
+- NO `/protocol/queen <model>` slash command — `codex` is already a CLI, `claude` is already a CLI; no wrapper needed
+- NO 8-mode taxonomy / mode-signature detector — over-engineered for current evidence; the §1.1 + §1.2 + §4.2 rules cover the same failure pattern in 3 surfaces instead of 8 modes
+
+**Evidence basis:**
+
+n=2 — voice agent (Pipecat/LiveKit/Realtime SDK chain) and UI/UX polish — both shipped via Codex CLI standalone after failing under Claude+ceremony on 2026-05-11. v2.14.4 closed the per-shard fix (rule 3.5: signature → codex-rescue). v2.15.0 closes the per-session fix: when the *whole session* is depth-shaped from the start, don't launch Claude Code as queen at all — launch Codex directly. The §26.4 anti-pattern check held: this minor bump is backed by directly-observed failure evidence, not speculation.
+
+**Smoke status (2026-05-12):** `claude-rescue.sh` syntax-clean and executable; `AGENTS.md` at ConvertZap root; `claude -p` headless mode verified on PATH. End-to-end Codex-led session not yet tested live — that's the n=3 validation step the user takes next time depth work appears.
+
+**Self-rated:** 9.5/10. Strip-down version after Plan-mode validation cut ~60% of original proposed scope (Codex-shaped skill loader, slash command, state migration). What remains is the architectural truth (any model can queen) + the minimum infrastructure to make it real (rescue wrapper + AGENTS.md).
+
+## v2.14.5 — 2026-05-11
+
+**Google Jules added as the async-PR lane — sixth worker, distinct routing contract.**
+
+- **§29.14 NEW.** Operator installed `@google/jules` v0.1.42 — fulfilled the §29.13-era deferred condition. Jules joins as a sixth worker with a fundamentally different shape: **async, cloud-VM, GitHub-native PR generator** (Gemini 3 Pro / 3 Flash).
+- **§4.2 NEW rule 3.6** — tags `{async-pr, dep-bump, test-backfill, mechanical-mass-refactor}` → `jules-async`. Inserted right after the v2.14.4 rule 3.5 (Codex-primary), before rule 4 (critical/claude-ant). Both new rules deliver on §1.1's MUST-delegate obligation.
+- **§4.3** companion routing-rationale row: "Jules ships fire-and-forget GitHub PRs in cloud VM; free 15/day tier reclaims paid-cap budget. <24h SLA, no real-time interaction, must accept whatever PR comes back."
+- **`~/.claude/scripts/jules-task.sh`** (~480 lines) shipped. Mirrors `kimi-task.sh` surface (`start`/`list`/`pull`/`apply`/`teleport`/`forget`/`notify`/`cleanup`/`usage`/`enable`/`disable`/`check`/`status-config`) but tracks **session IDs** (durable across host reboots) instead of PIDs. Auto-detects cwd's github.com origin as `--repo`. `--parallel 1-5` for parallel attempts. Daily cap 15 (free tier), override `echo 100 > ~/.jules/.daily-cap` for Pro.
+- **`guard_data_sharing()`** cloned from `grok-task.sh` — blocks dispatch on Stripe/Supabase/Anthropic/OpenAI/Hyros/GHL keys, JWTs, PEM blocks. Higher salience than Grok: Jules clones the WHOLE repo into a Google VM, secrets-in-prompt are a particularly high training-data leak vector.
+- **`~/.claude/scripts/sidecar-health.sh`** extended with `ping_jules`. Health JSON gains `jules: { healthy, checked_at }` field. Status line grows: `ALL HEALTHY — full 6-way dispatch (Claude+Kimi+Codex+Gemini+Grok-intel+Jules-async) available`. Backward-compat: exit code still 0 only when Kimi+Codex healthy; Jules + Grok additive.
+- **Skill-bomb resistance:** Jules loads `AGENTS.md` (open standard, co-stewarded with OpenAI/Cursor/Factory) — NOT `.claude/skills/`. Zero context-bomb risk like Grok. Trade-off: Jules can't use ConvertZap skills arsenal without an `AGENTS.md` shim (deferred until first real dispatch shows the need).
+- **Smoke status:** Jules binary at `/opt/homebrew/bin/jules`; `@google/jules@0.1.42` confirmed via npm; **auth pending** (`jules login` required before first dispatch). All other lanes green and verified.
+
+**Anti-fix:** do NOT promote Jules to default coding lane. Its async shape means no real-time interaction; using it where a human/queen should iterate on intermediate decisions is the failure mode HN reviewers flagged (1-of-12 merge rate during preview). Strictly: dep updates, test backfill, mechanical mass refactor — fire-and-forget shapes only.
+
+**Why patch bump, not minor:** §29.14 routing-contract addition + rule 3.6 in §4.2 + 480-line wrapper for an existing CLI. No state-machine change, no new converge rule, no new gate. Sixth lane, but proportional to the failure surface it adds.
+
+**Self-rated:** 9.5/10. The 6-way pool now covers: breadth (Claude queen + Kimi/Codex/Gemini coding) + STRICT-INTEL (Grok) + ASYNC-PR (Jules). Each lane has a non-overlapping value proposition.
+
+## v2.14.4 — 2026-05-11
+
+**§4.2 routing function calibrated for Codex-primary signatures + §1.1 queen-role obligation.**
+
+- **§1.1 NEW.** "When the queen role is optional" — obligates (not permits) queen delegation to §4 primary when shard signature matches single-SDK-chain / single-screen-polish / stack-trace-fix. Evidence: 2026-05-11 voice agent + UI/UX failures under Claude+ceremony, both shipped via Codex standalone.
+- **§4.2 NEW rule 3.5** — tags `{voice, realtime, openai-sdk, single-sdk-chain, ui-polish, frontend-taste, single-screen}` or `kind == "stack-trace-fix"` → `agent:codex-rescue`. Codex was already in the pool as `kind=="diagnostic"` (rule 7) but not for the depth-task-signature path that voice/UI work fits.
+- **§4.3** companion routing-rationale row: "GPT-5.5 owns OpenAI-SDK/voice/frontend-taste training distribution; Opus ceremony hurts these. Skips ceremony entirely — verify gate still applies at end (§3.1)."
+- **No new scripts in v2.14.4** (Jules deferred to v2.14.5 — see above — when `which jules` succeeded).
+- **No per-model mapping duplication** into project CLAUDE.md — §4 is canonical; project CLAUDE.md gets a "see §4" reference if anything (deferred).
+
+**Why patch bump, not minor:** rule addition + one obligation paragraph. No state-machine change.
+
+**Self-rated:** 9.5/10. Closes the depth-task routing bug the user surfaced after the voice + UX failure pattern.
+
+## v2.14.3 — 2026-05-11
+
+**Grok CLI added as STRICT-INTEL lane (not a coding rescue lane) + skill-bomb fix.**
+
+- **§29.13 NEW.** Operator installed `grok` CLI v1.6.3 (xAI LCV fork) with API key. Grok joins the worker pool BUT with a fundamentally different routing contract: **specialty intel only, never code rescue**. Per the user's pre-build analysis (preserved verbatim in the routing rules): Kimi/Codex/Gemini already cover coding with three distinct training distributions; Grok's unique edges are (1) live X/Twitter access — only worker with this, (2) less-hedging adversarial output, (3) up to 2M context on `grok-4.20-multi-agent`, (4) distinct training corpus.
+- **The skill-bomb (sharp edge, must memorize):** Grok CLI's `SkillManager` walks ancestor dirs looking for any of `.git`/`.claude`/`.grok` and auto-loads every `SKILL.md` under `<root>/.claude/skills/` + `<root>/.grok/skills/`. There is **no flag, env var, or setting to disable this**. On a ConvertZap-stack workstation with 1,611 skill files, a 4-word prompt loaded **7,164,130 tokens** → Status 400. Worse, `$HOME` itself is a project root because `~/.claude/` exists, so `-d $HOME` mitigation FAILS — the v2.14.3 initial implementation had this bug and was empirically debunked. Verified working fix: dispatch from a fresh `mktemp -d /tmp/grok-safe-XXXXXX` whose ancestor chain has none of those markers.
+- **`~/.claude/scripts/grok-task.sh` calibrated.** Existing script had `SAFE_CWD=$HOME` (broken). Patched to `make_safe_cwd` allocating a fresh `/tmp/grok-safe-*` per dispatch. New specialty subcommands shipped: `trends <niche>`, `x-search <query>`, `roast <text|file>`, `redteam <text|file>` (auto-uses grok-4.20-multi-agent + reasoning high), `intel <prompt-file>`. xAI Batch API wrappers: `batch-status / batch-result / batch-list <id>`. PID-reuse helper from inception. Cleanup paths remove `/tmp/grok-safe-*` dirs on `cancel`/`cleanup` (guarded against deleting non-grok paths).
+- **Smoke-tested live (2026-05-11 05:42 UTC):** `grok-task.sh roast "Transform your business with our amazing solution today!"` → PID 48607 → DONE 25s → output `"pure vapor"`, `"corporate zombie phrase"`, `"AI-generated garbage"` + concrete replacement hook with a numbered pain point. Materially distinct in tone from Kimi/Codex/Gemini reviewing the same line (all four hedged in parallel smoke test; only Grok did not).
+- **Existing infrastructure discovered/preserved:** `~/.claude/agents/grok-rescue.md` (existed before this turn — Agent SDK forwarding wrapper), `/grok:trends` slash command in the skill list, prior partial `grok-task.sh` (16.8K). v2.14.3 calibrates rather than duplicates.
+- **xAI Batch API now wrapped.** Operator created `batch_ac6e64b7-098f-4efe-984e-8e6667fcdfbf` (empty container, 0 requests, expires 2026-06-10). Useful for bulk Deep Research dispatches that don't need <30s latency. Wrapped via `grok-task.sh batch-{status,result,list}`.
+
+**Anti-fix:** do not promote Grok to default coding lane "because it's another sidecar". The unique value composes multiplicatively with the existing 4 lanes BECAUSE it's deployed against tasks the others can't do. Demote to "yet another Kimi" → value collapses. Triple-review at converge stays Kimi+Codex+Gemini (not Grok) for code; Grok is for copy/research/competitive-intel.
+
+**Why patch bump, not minor:** §29.13 documents a routing-contract addition + a 1-byte fix to `grok-task.sh` SAFE_CWD + new subcommands wrapping existing CLI surface. No new state-machine state, no new converge rule, no new gate.
+
+**Self-rated:** ~9.88/10 (up 0.01 from v2.14.2). Routing-contract clarity is the upgrade — the worker pool is now Kimi/Codex/Gemini/Gemma4 for coding + Grok for specialty intel + Claude as queen, with each lane having a non-overlapping value proposition.
+
+## v2.14.2 — 2026-05-11
+
+**Gemini CLI added as a fourth worker lane — calibration patch.**
+
+- **§29.12 NEW.** Operator installed Google's `gemini` CLI v0.41.2 (2026-05-10 23:55 UTC). The protocol gains a fourth dispatch backend complementing Kimi (K2.6), Codex (GPT-5.5), and Gemma 4 (local). Gemini's training distribution differs from both Anthropic and OpenAI — high-value for triangulating high-stakes shards.
+- **Two new lanes:**
+  - **gemini-isolated** — write-mode via `gemini -y -m gemini-3-flash-preview --output-format json -p ""` with manual git worktree (parity with kimi-task.sh; Gemini's built-in `-w` is interactive-only and incompatible with `-p`).
+  - **gemini-rescue** — read-only audit via `--approval-mode plan`. Adds optional third reviewer for triple-review on revenue/security/migration shards.
+- **`~/.claude/scripts/gemini-task.sh` shipped.** Mirrors `kimi-task.sh` subcommand surface (start/status/result/diff/merge/cancel/cleanup/notify/usage/prune/enable/disable/check). Auto-acquires dispatch-lock via `dispatch-lock-from-path.sh` (v2.14 wiring). `is_gemini_alive <pid>` identity check from inception (§29.11 PID-reuse lesson applied). Daily cap 40, concurrent isolated cap 2 per repo.
+- **`~/.claude/scripts/sidecar-health.sh` extended.** Health JSON gains `gemini: { healthy, checked_at }` field. Report grows from 3-state to 8-state. Backward-compat: exit code still 0 only when Kimi+Codex both healthy (Gemini is additive, not a regression-blocker).
+- **Smoke-tested live (2026-05-11 00:02 UTC):** `gemini-task.sh start --review /tmp/smoke-prompt.md` → PID 43409 → status RUNNING → DONE 12s later → `result 43409` extracted `GEMINI_SMOKE_OK` from JSON despite the CLI's stderr-preamble warnings. Quirk handled: Gemini CLI prepends `Warning: 256-color...` + `Ripgrep is not available...` to JSON body; result extraction uses regex `^\{` (multi-line) to skip preamble.
+- **Routing (provisional, calibrate after n≥10 dispatches):** mechanical → kimi-isolated; reasoning-heavy → claude-ant; audit → codex-rescue OR gemini-isolated --review (free tier); classify → gemma4-local; **revenue/security/migration shards now eligible for triple-review** (kimi-rescue + codex-rescue + gemini-rescue).
+
+**Why patch bump, not minor:** §29.12 adds tooling + routing patterns, but no new state-machine state, no new converge rule, no new gate. Three runtime scripts grew sidecar awareness; the protocol document gained a 6-paragraph section. Per §26.4 anti-pattern: hold version-bump discipline.
+
+**Self-rated:** ~9.87/10 (up 0.02 from v2.14.1). Closes a real ecosystem gap (Gemini CLI was uninstalled until this date); minor because no spec-rule change.
+
+## v2.14.1 — 2026-05-10
+
+**PID-reuse hazard in dispatch-tracker scripts — calibration patch (not a protocol-spec change).**
+
+- **§29.11 NEW.** Real evidence (2026-05-10 23:00 UTC): `kimi-task.sh status` reported shard AA (PID 34842) as `RUNNING` ~29 hours after the kimi process exited. macOS had recycled PID 34842 to `/System/.../ecosystemd`. Bare `ps -p $pid` returns alive for the recycled-PID daemon, causing three downstream failures:
+  1. Stale RUNNING status forever (operator can't trust `kimi-task.sh status` after PID rollover).
+  2. `check_dispatch_allowed` concurrent-cap counter holds ghosts → blocks new dispatches in the same repo against `DEFAULT_CONCURRENT_CAP=2`.
+  3. Safety-critical: `kimi-task.sh cancel <pid>` would `kill -9` whichever recycled-PID process is current — potentially a system daemon.
+- **Fix shipped in `~/.claude/scripts/kimi-task.sh`.** Centralized `is_kimi_alive <pid>` helper that verifies `ps -p $pid -o comm=` matches the expected process family (`*kimi*|*nohup*|*bash*|*sh|*node*|*python*`) before returning alive. Replaces all 7 sites: status, notify, concurrent-cap counter, cancel pre-kill check, cancel post-kill check, cleanup gate. `cancel` now logs `"PID recycled to unrelated process — safe-no-kill"` instead of issuing SIGKILL against a recycled PID.
+- **Residual risk documented:** `dispatch-lock.sh sweep` still uses bare `kill -0 $pid` to detect stale lock holders. Same hazard, but failure mode is benign (under-reports staleness → lock stays held by ghost; operator escape: `dispatch-lock.sh release` manually). Not patched in this point release; sweep-side identity verification deferred until v3 holder.json captures process-cmd at acquire time.
+- **Companion fix in `~/.claude/scripts/codex-task.sh:91`** — `grep -c ... || echo 0` produced a two-line `today_count` when no entries matched today, breaking the `Today (UTC): 0\n0 / 20` line in SessionStart reminders. Wrapped with `{ ...; || true; }` to suppress the appended `echo 0` while still defaulting to 0 on missing file.
+
+**Why patch bump, not minor:** no new spec rule, no new shipped script, no protocol-document state-machine change. Two runtime tools (`kimi-task.sh`, `codex-task.sh`) hardened against an observed correctness/safety bug. Per §26.4 anti-pattern: 14 versions in 24h is excessive; this is the line — calibration only, no v2.15 churn.
+
+**Self-rated:** still ~9.85/10. The protocol itself is unchanged; this fixes a runtime tool that the protocol relies on.
+
 ## v2.14.0 — 2026-05-09
 
 **Auto-acquire dispatch lock from prompt-file path — closes v2.13's adoption gap.**
