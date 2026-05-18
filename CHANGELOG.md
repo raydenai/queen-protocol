@@ -2,6 +2,27 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.15.5 — 2026-05-18
+
+**Grok Build (xAI official CLI) added as the CODING lane — distinct from the existing LCV-fork Grok lane. 7-way dispatch surface.**
+
+- **§29.17 NEW.** xAI shipped Grok Build CLI on 2026-05-14. Operator has SuperGrok Heavy subscription + Grok Build v0.1.211 installed at `~/.grok/bin/grok` (NOT on PATH; LCV fork still owns `/opt/homebrew/bin/grok`). Both binaries coexist via absolute path in their respective wrappers.
+- **`~/.claude/scripts/grok-build-task.sh` shipped (~330 lines).** Native Grok Build features wrapped: Plan Mode (`--permission-mode plan`), built-in worktree (`-w`), best-of-N parallel attempts (`--best-of-n N`), self-verification (`--check`), sandbox profiles (`--sandbox`), cross-session memory, MCP integration. `is_grok_build_alive` PID-reuse-safe helper from inception (§29.11 + v2.15.3 case-sensitivity lessons applied). Skill-bomb mitigation via `/tmp/grok-build-safe-*` cwd (same `.claude/skills/` auto-load hazard as LCV fork). `guard_data_sharing` cloned. Daily cap 20 (conservative — paid subscription), concurrent isolated 2 per repo.
+- **`sidecar-health.sh` extended.** Health JSON gains `grok_build: { healthy, checked_at }` field. Status grows to **7-way dispatch** (Claude+Kimi+Codex+Gemini+Grok-intel+Jules-async+Grok-Build-coding). Exit code 0 still requires only Kimi+Codex healthy — Grok Build is additive, not regression-blocking.
+- **Two Grok lanes, distinct routing:** `grok-task.sh` (LCV fork) for INTEL (trends/x-search/roast/redteam) + batch (Grok Build has no batch verb); `grok-build-task.sh` (xAI official) for CODING (Plan Mode, worktree, best-of-N, self-verify, sandbox).
+- **No grok-task.sh changes.** LCV fork wrapper stays untouched — mature, slash-commands wired, batch API access is LCV-fork-only.
+- **Routing recommendation (provisional, not yet a §4.2 rule):** prefer Grok Build for new coding work where Plan Mode / worktree / best-of-N adds value; keep using LCV fork (grok-task.sh) for the existing trends/x-search/roast/redteam/batch surface. §4.2 routing-function rule deferred until n≥1 real Grok Build colony delivers evidence.
+
+**Smoke-tested live (2026-05-18 ~00:43 UTC):** `grok-build-task.sh setup` reports `LOGGED IN`, daily cap 20, default model `grok-build`. `sidecar-health.sh report` correctly surfaces 7-way dispatch with Grok-Build-coding lane HEALTHY.
+
+**Anti-fix:** do NOT route INTEL queries (trends/x-search/roast/redteam) to Grok Build. These are first-class subcommands in the LCV fork via shaped prompts; Grok Build doesn't expose them natively. Routing them to Grok Build would require building the same prompt-shaping that grok-task.sh already provides. Keep the lanes distinct.
+
+**Coverage gap (v2.16+ candidate):** no `agent:grok-build-rescue` subagent variant in the Claude Code Agent SDK ecosystem. Operator invokes `grok-build-task.sh start` directly. When/if such a subagent ships, wire it through `dispatch-lock-from-path.sh` like the others.
+
+**Why patch bump, not minor:** new lane added to existing structure, same pattern as v2.14.5 Jules addition (which was also patch). No state-machine change, no new converge rule, no new gate. Seventh dispatch surface, all proportional to incremental capability.
+
+**Self-rated:** 9/10. Adds a real differentiated capability (Plan Mode + best-of-N + native worktree) that no other lane has, without disrupting existing wiring. The 1.0 deficit: §4.2 routing-function rule held until evidence; no n≥1 real Grok Build colony yet means routing is operator-driven not protocol-driven.
+
 ## v2.15.4 — 2026-05-13
 
 **Two doc-only additions closing the visibility/autonomy and isolation-safety gaps. No runtime code changes.**

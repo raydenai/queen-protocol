@@ -3468,6 +3468,77 @@ PROMPT_FILE="$PROMPT_SANITIZED"
 
 **Smoke status:** documented in protocol (this section). No code-level enforcement yet. Sanitizer ships when n≥2 evidence of the same failure on another lane (e.g., Gemini doing the same on its `--isolated` mode).
 
+### 29.17 Grok Build (xAI official CLI) as the CODING lane (v2.15.5)
+
+**Context (2026-05-18):** xAI shipped its official Grok Build CLI on 2026-05-14 (4 days ago). Operator has SuperGrok Heavy subscription and Grok Build v0.1.211 installed at `~/.grok/bin/grok` via the official install script. **This is distinct from `grok-task.sh`** which wraps the third-party LCV fork (`@lcv-ideas-software/grok-cli` 1.6.3) at `/opt/homebrew/bin/grok`.
+
+**Coexistence:** both binaries live side-by-side. `grok-task.sh` uses `/opt/homebrew/bin/grok` (LCV fork); `grok-build-task.sh` uses absolute path `~/.grok/bin/grok` (official). No symlink hijack, no PATH conflict.
+
+**Distinct features Grok Build offers (verified from `--help`):**
+
+| Feature | Grok Build native | LCV fork wrapping |
+|---|---|---|
+| Plan Mode (read-only) | `--permission-mode plan` first-class | Wrapped via `--peer-review-mode` |
+| Worktree dispatch | `-w [<NAME>]` built-in | Manual via wrapper |
+| Best-of-N parallel | `--best-of-n <N>` first-class | None |
+| Self-verification loop | `--check` flag | None |
+| Sandbox filesystem/network | `--sandbox <PROFILE>` | None |
+| Cross-session memory | `memory` subcommand | None |
+| MCP integration | `mcp` subcommand first-class | Via flags |
+| Subagent spawning | `--no-subagents` toggle (default on) | None |
+| Session management | `sessions` subcommand | None |
+| Permission modes | `default \| acceptEdits \| auto \| dontAsk \| bypassPermissions \| plan` | Single peer-review flag |
+| Pricing | SuperGrok Heavy ($99-300/mo subscription) | Pay-per-API-call |
+
+**Routing rule (§4.2 candidate, not yet shipped — pending n≥1 real colony):**
+
+Tags `{plan-mode-required, best-of-n-explore, self-verify, sandboxed-write}` or `priority: critical AND complexity: complex` → `agent:grok-build`. Hold the §4.2 routing rule until first real Grok Build colony delivers evidence; for now operator invokes via `grok-build-task.sh start` directly.
+
+**Implementation:** [`~/.claude/scripts/grok-build-task.sh`](file:///Users/sezars/.claude/scripts/grok-build-task.sh) (~330 lines) mirrors `grok-task.sh` subcommand surface with Grok-Build-specific flags exposed:
+
+```bash
+# Plan Mode dispatch (read-only audit + diff approval):
+grok-build-task.sh start --plan <prompt-file>
+
+# Built-in worktree (no manual git worktree wrapping):
+grok-build-task.sh start --isolated [<worktree-name>] <prompt-file>
+
+# Best-of-N parallel exploration (high-stakes shards):
+grok-build-task.sh start --best-of-n 3 <prompt-file>
+
+# Self-verification loop (catches "I lied about tests passing"):
+grok-build-task.sh start --check <prompt-file>
+
+# Effort tuning:
+grok-build-task.sh start --effort high <prompt-file>
+
+# Pass-throughs:
+grok-build-task.sh sessions list
+grok-build-task.sh memory show
+grok-build-task.sh inspect
+```
+
+**Auth contract:** `~/.grok/bin/grok login` (OAuth via auth.x.ai) or `login --device-auth` for headless environments. Different from LCV fork's plaintext `~/.grok/user-settings.json`. Both auth states checked independently by their respective wrappers.
+
+**Skill-bomb safety:** identical risk to LCV fork — Grok Build auto-loads `.claude/skills/` + `AGENTS.md` from ancestor dirs. `grok-build-task.sh start` (without `--isolated`) dispatches from a fresh `mktemp -d /tmp/grok-build-safe-*` with no `.git`/`.claude`/`.grok` ancestors. With `--isolated`, Grok Build's own `-w` worktree manages context.
+
+**Data-sharing safety:** `guard_data_sharing()` cloned from `grok-task.sh`. xAI's team data-sharing-for-credits agreement is not explicitly documented to apply to Grok Build but assumed by default. Override: `SKIP_DS_GUARD=1`.
+
+**Caps:** daily 20 (conservative — paid subscription), concurrent isolated 2 per repo, per-repo opt-out via `.no-grok-build`.
+
+**Sidecar-health surfacing:** [`sidecar-health.sh`](file:///Users/sezars/.claude/scripts/sidecar-health.sh) extended with `ping_grok_build` (checks `~/.grok/bin/grok --version`). Reports `7-way dispatch: Claude+Kimi+Codex+Gemini+Grok-intel+Jules-async+Grok-Build-coding`.
+
+**Verdict — separate lane, not replacement:** Grok Build is 4 days old and beta-status; the LCV fork has been battle-tested and our wrappers exploit its specialty subcommands (trends, x-search, roast, redteam) that Grok Build doesn't expose as first-class. The two coexist with distinct routing:
+
+- **`grok-task.sh`** → INTEL (live X trends, adversarial roast, red-team) — LCV fork
+- **`grok-build-task.sh`** → CODING (Plan Mode, worktree, best-of-N, self-verify) — xAI official
+
+Re-evaluate replacement when Grok Build GA + when LCV fork falls behind on coding features OR when SuperGrok Heavy subscription cost-benefit clearly favors retiring the LCV-fork API path.
+
+**Anti-fix:** do NOT route INTEL tasks (trends/x-search/roast/redteam) to Grok Build. It doesn't expose those as first-class CLI verbs — using it would require building tool-use prompts that the LCV-fork wrappers already provide as one-line invocations. Keep the lanes distinct.
+
+**Coverage gap (v2.16 candidate):** no `agent:grok-build-rescue` subagent variant in the Claude Code Agent SDK ecosystem. Operator invokes `grok-build-task.sh start` directly or via foreground shell. When/if a `grok-build-rescue` Agent definition ships, wire it through `dispatch-lock-from-path.sh` like the others.
+
 ### 29.7 Codex vs Kimi: report-quality observation
 
 Of 22 Elev-W1 shards, 2 were authored by `agent-codex-rescue` (B-cap7-wallet, Voice-livekit-agents) and most others by `kimi-isolated`. Codex shards produced more canonical-shape reports on first emission (B-cap7 needed only the `queen_notes` allowance to pass v2.10.1; Voice-livekit needed only the timing-field fill that v2.11 normalize handles). Kimi shards required more aggressive back-patching by the queen.
