@@ -3054,6 +3054,44 @@ Without queen-side re-run, this report would have shipped through CONVERGE marke
 
 **Lesson encoded:** ant-side gate output must be treated as a **claim**, not a fact, until queen has re-executed the gate command in the integration worktree from a clean apply. This is true regardless of which model authored the shard. Frontier-model implementations of large coding tasks routinely fabricate plausible-looking gate output.
 
+### 29.7 Codex vs Kimi: report-quality observation
+
+Of 22 Elev-W1 shards, 2 were authored by `agent-codex-rescue` (B-cap7-wallet, Voice-livekit-agents) and most others by `kimi-isolated`. Codex shards produced more canonical-shape reports on first emission (B-cap7 needed only the `queen_notes` allowance to pass v2.10.1; Voice-livekit needed only the timing-field fill that v2.11 normalize handles). Kimi shards required more aggressive back-patching by the queen.
+
+**Hypothesis:** the codex-rescue subagent's prompt is stricter about JSON-schema discipline than kimi-rescue's, OR Codex models follow JSON-schema instructions more reliably than Kimi at this scale.
+
+**Implication for routing:** when canonical report shape matters (audit shards, formal compliance work, automated downstream consumers of report.json), prefer codex-rescue when caps allow. When raw code-output volume matters and the queen is willing to back-patch, kimi-isolated remains the cheaper / more parallel lane.
+
+This is an observation, not a routing rule (n=2 is too small to mandate). Future colonies should tag and measure to validate.
+
+### 29.8 Automated colony-watcher daemon (v2.12)
+
+**Real evidence:** during a working session on 2026-05-09 the operator was actively running queen-ant in another tab while this queen iterated on protocol patches. Synthesizing reports for D-cap14 and U-cap19 manually took several Bash round-trips and operator attention. Each new shard the other-tab queen wrote risked another schema-divergent report.
+
+**Rule (v2.12):** the protocol's enforcement should run *while* queens work, not just *after* the operator triggers `colony-converge.sh` manually. Ships [`scripts/colony-watcher.sh`](./scripts/colony-watcher.sh), a launchd-installable daemon that sweeps every 10 minutes:
+
+1. Auto-normalizes any report.json that fails strict §3 validation (delegates to `report-normalize.py --in-place`)
+2. Seals stale `phase: LAND, landed_at: RUNNING` active.json files older than 24h → marks LANDED with synthesized timestamp + queen_notes audit trail
+3. Detects long-stuck in-flight shards (no report.json, no REAP.md, >4h old) → emits `TIMEOUT_DETECTED` to log so operator can author REAP.md
+4. Logs every action to `~/.claude/state/colony/_watcher.log` with one-line per action
+
+```bash
+# macOS: install LaunchAgent (every 600s)
+scripts/colony-watcher.sh install-launchd
+
+# Linux / cron alternative
+*/10 * * * *  ~/projects/queen-protocol/scripts/colony-watcher.sh once
+
+# Operator-side status check
+scripts/colony-watcher.sh status
+```
+
+**Smoke-tested live (2026-05-09):** corrupted a known-good report by deleting `started_at`, lowercasing `status: "done"`, renaming `files_touched → files_changed`. Watcher detected at next sweep, auto-normalized in <1s, validated PASS, logged `REPORT_NORMALIZED` + `REPORT_SWEEP` events. Operator unaware (silent operation).
+
+**Idempotency guarantee:** the watcher exits 0 always, takes no action when no work is found, and never writes to a report that already passes strict validation. Safe to run on every cron tick.
+
+**Failure mode:** `report-normalize.py` may fail on truly broken reports (gates non-list AND status missing AND no aliasable variants). Watcher logs `REPORT_NORMALIZE_FAILED` for those — surfaces to operator without blocking other sweeps.
+
 ### 29.9 Per-shard dispatch lock (v2.13)
 
 **Real evidence (2026-05-09 18:13 UTC):** two queens in two different tabs each dispatched the same shard `X-test-repair` from Elev-W1 colony — within 10 seconds of each other. PID 33077 (this queen) and PID 34795 (other-tab queen). Same colony, same shard ID, same prompt file. Both worked through the test repair independently. The other-tab queen finished first; this queen's dispatch was retroactively cancelled to avoid duplicate Kimi cap consumption + worktree merge conflict at converge.
@@ -3137,34 +3175,6 @@ fi
 - (b) Have the queen-protocol provide a custom `codex-rescue-with-lock.sh` that operators invoke instead of the agent subagent
 
 For now, Codex dispatches are still operator-discipline. Kimi covers the higher-frequency dispatch path observed in production.
-
-### 29.8 Automated colony-watcher daemon (v2.12)
-
-**Real evidence:** during a working session on 2026-05-09 the operator was actively running queen-ant in another tab while this queen iterated on protocol patches. Synthesizing reports for D-cap14 and U-cap19 manually took several Bash round-trips and operator attention. Each new shard the other-tab queen wrote risked another schema-divergent report.
-
-**Rule (v2.12):** the protocol's enforcement should run *while* queens work, not just *after* the operator triggers `colony-converge.sh` manually. Ships [`scripts/colony-watcher.sh`](./scripts/colony-watcher.sh), a launchd-installable daemon that sweeps every 10 minutes:
-
-1. Auto-normalizes any report.json that fails strict §3 validation (delegates to `report-normalize.py --in-place`)
-2. Seals stale `phase: LAND, landed_at: RUNNING` active.json files older than 24h → marks LANDED with synthesized timestamp + queen_notes audit trail
-3. Detects long-stuck in-flight shards (no report.json, no REAP.md, >4h old) → emits `TIMEOUT_DETECTED` to log so operator can author REAP.md
-4. Logs every action to `~/.claude/state/colony/_watcher.log` with one-line per action
-
-```bash
-# macOS: install LaunchAgent (every 600s)
-scripts/colony-watcher.sh install-launchd
-
-# Linux / cron alternative
-*/10 * * * *  ~/projects/queen-protocol/scripts/colony-watcher.sh once
-
-# Operator-side status check
-scripts/colony-watcher.sh status
-```
-
-**Smoke-tested live (2026-05-09):** corrupted a known-good report by deleting `started_at`, lowercasing `status: "done"`, renaming `files_touched → files_changed`. Watcher detected at next sweep, auto-normalized in <1s, validated PASS, logged `REPORT_NORMALIZED` + `REPORT_SWEEP` events. Operator unaware (silent operation).
-
-**Idempotency guarantee:** the watcher exits 0 always, takes no action when no work is found, and never writes to a report that already passes strict validation. Safe to run on every cron tick.
-
-**Failure mode:** `report-normalize.py` may fail on truly broken reports (gates non-list AND status missing AND no aliasable variants). Watcher logs `REPORT_NORMALIZE_FAILED` for those — surfaces to operator without blocking other sweeps.
 
 ### 29.11 PID reuse hazard in dispatch-tracker scripts (v2.14.1)
 
@@ -3539,15 +3549,126 @@ Re-evaluate replacement when Grok Build GA + when LCV fork falls behind on codin
 
 **Coverage gap (v2.16 candidate):** no `agent:grok-build-rescue` subagent variant in the Claude Code Agent SDK ecosystem. Operator invokes `grok-build-task.sh start` directly or via foreground shell. When/if a `grok-build-rescue` Agent definition ships, wire it through `dispatch-lock-from-path.sh` like the others.
 
-### 29.7 Codex vs Kimi: report-quality observation
+### 29.18 Worker-fleet helper consistency (v2.15.6 → v2.16.0)
 
-Of 22 Elev-W1 shards, 2 were authored by `agent-codex-rescue` (B-cap7-wallet, Voice-livekit-agents) and most others by `kimi-isolated`. Codex shards produced more canonical-shape reports on first emission (B-cap7 needed only the `queen_notes` allowance to pass v2.10.1; Voice-livekit needed only the timing-field fill that v2.11 normalize handles). Kimi shards required more aggressive back-patching by the queen.
+**Context (2026-05-14):** post-Grok-Build integration audit of all 7 task scripts (`kimi-task.sh`, `codex-task.sh`, `gemini-task.sh`, `grok-task.sh`, `grok-build-task.sh`, `jules-task.sh`, `g4-task.sh`) revealed gaps the v2.15.x patches left unaddressed. v2.15.6 closed the macOS PID-case-fix portability gap and the Kimi data-sharing guard. v2.16.0 closed the Codex and Gemini guard gaps and replaced the hand-maintained audit matrix with a self-verifying script.
 
-**Hypothesis:** the codex-rescue subagent's prompt is stricter about JSON-schema discipline than kimi-rescue's, OR Codex models follow JSON-schema instructions more reliably than Kimi at this scale.
+**Gaps closed in v2.15.6:**
 
-**Implication for routing:** when canonical report shape matters (audit shards, formal compliance work, automated downstream consumers of report.json), prefer codex-rescue when caps allow. When raw code-output volume matters and the queen is willing to back-patch, kimi-isolated remains the cheaper / more parallel lane.
+- `gemini-task.sh:53`, `grok-task.sh:83` — added `| tr '[:upper:]' '[:lower:]'` to the `ps -p $pid -o comm=` pipe (parallels v2.15.2 fix on Kimi).
+- `g4-task.sh:75` — new `is_g4_alive()` helper; 3 bare `ps -p` sites upgraded.
+- `kimi-task.sh:56` — `guard_data_sharing()` cloned with Moonshot-specific wording. `:204` wires it into the `start` dispatch path. Override via `SKIP_DS_GUARD=1`.
 
-This is an observation, not a routing rule (n=2 is too small to mandate). Future colonies should tag and measure to validate.
+**Gaps closed in v2.16.0:**
+
+- `codex-task.sh:30-65` + `:80-109` — new `guard_data_sharing()` plus two new harness-facing subcommands: `codex-task.sh guard <prompt-file>` (exit 3 on secret) and `codex-task.sh acquire-lock <prompt-file>` (delegates to `scripts/dispatch-lock-from-path.sh`). Smoke-tested with planted `ANTHROPIC_API_KEY`: exit 3. `is_codex_alive` documented as structurally N/A — codex-task.sh holds no PID state; the codex-rescue subagent / `codex-companion.mjs` plugin owns execution lifecycle.
+- `gemini-task.sh:65-90` — `guard_data_sharing()` added with Google Code Assist wording. `:212` wires it into the `start` dispatch path.
+
+**Live audit matrix — generated, not hand-maintained:**
+
+Run [`scripts/audit-worker-fleet.sh`](./scripts/audit-worker-fleet.sh) for the current state. The script greps each `~/.claude/scripts/*-task.sh` for the four helper patterns (`is_*_alive` with the `tr '[:upper:]' '[:lower:]'` case-fix, `guard_data_sharing`, `dispatch-lock-from-path` wiring, and `ping_*` in `sidecar-health.sh`) and emits an OK/MISSING/CASE-BUG/N/A verdict per cell. Exit 0 if all required helpers are present, exit 1 otherwise.
+
+Replaces the hand-maintained markdown table that shipped in v2.15.6 — the table drifted within one patch cycle (the v2.15.6 table said `gemini-task.sh` guard was ❌ as v2.16-deferred, and the markdown couldn't tell us when the gap was actually closed). The script can't drift.
+
+Sample output (post-v2.16.0, 2026-05-18):
+
+```
+Lane                   is_alive   ds_guard   lock       health
+kimi-task.sh           OK         OK         OK         OK
+codex-task.sh          N/A        OK         OK         OK
+gemini-task.sh         OK         OK         OK         OK
+grok-task.sh           OK         OK         (skip)     OK
+grok-build-task.sh     OK         OK         (skip)     OK
+jules-task.sh          N/A        OK         (skip)     N/A
+g4-task.sh             OK         N/A        (skip)     N/A
+
+VERDICT: all required helpers present across the fleet.
+```
+
+Lane policy lives at the top of the script — edit there when adding a new lane or shifting an `optional` → `required`.
+
+**Routing-skew observation — resolved with explicit decision-not-to-act:**
+
+Operator usage 2026-05-07 → 2026-05-14: Kimi 14/7d, Codex 20/7d, Gemini 17/7d, Grok 2/7d, Grok-Build 0/7d. Cap utilization is 10% / 2% / 0% on Codex / Gemini / Grok-Build. The v2.15.6 entry proposed "prefer the underused lane on routing ties" as a recommendation. **v2.16.0 closes this open loop with a deliberate decision NOT to promote it to a §4.2 rule, on three grounds:**
+
+1. **n=1 week of usage data is too small** to drive a routing-matrix rule. The §4.2 matrix is keyed on shard *signature* (tags, kind, priority, complexity) — not on lane utilization. Adding a "if Gemini < 30% util → prefer Gemini" rule would conflate fleet-balancing with shard-fit, which is a §26.4 anti-pattern (rules that exist to be exercised rather than rules that exist because evidence demanded them).
+2. **The skew is a symptom of the matrix being correct, not broken.** Codex dominates because §1.1 + §4.2 rule 3.5 (v2.14.4) explicitly route voice/realtime/openai-sdk/ui-polish/single-screen/stack-trace-fix → Codex. Gemini and Grok-Build are reserved for specialty lanes that the current shard mix doesn't trigger often. Forcing more dispatch through them to "diversify training-distribution coverage" inverts the cause-and-effect.
+3. **The audit script's `(skip)` cells for Grok / Grok-Build / Jules / g4 `dispatch-lock` are deliberate.** Those lanes have lower-frequency parallel dispatch patterns. Adding `dispatch-lock-from-path` to every lane to "be consistent" would burn another `§26.4` anti-pattern line.
+
+**Re-evaluate when:** (a) a real colony fails because Codex was over-subscribed and a Gemini-suitable shard had to wait, OR (b) we accumulate ≥4 weeks of usage logs where the skew persists despite added Gemini/Grok-Build affinity in shard tagging. Neither has happened.
+
+**Anti-pattern reminder reinforced:** the §29.18 matrix replacement isn't "more automation." It's the simplest thing that keeps the documentation honest. The audit script is 150 lines; the markdown table it replaced was 8 lines but lied within 4 days. Cost is paid once, drift is prevented forever.
+
+**Anti-pattern reminder:** do NOT add a per-lane `--no-guard` flag. The single `SKIP_DS_GUARD=1` env-var override path is intentional friction. Per-lane flags accumulate into a normalized "always skip" pattern and the guard becomes ceremony.
+
+### 29.19 Antigravity IDE as the OPERATOR-DRIVEN PARALLEL-QUEEN lane (v2.18.0)
+
+**Context (2026-05-22):** operator installed Google Antigravity IDE v1.107.0 at `~/.antigravity/antigravity/bin/antigravity` (symlinked to `/Applications/Antigravity IDE.app/...`). Initial framing — "add Antigravity as another headless sidecar like Kimi/Codex/Gemini" — collapsed on inspection. Antigravity is structurally **not** a headless dispatch target.
+
+**What Antigravity actually is (binary inspection 2026-05-22):**
+
+- VSCode fork by Google. Electron app. Author: `"name": "Google"`, `"distro": "0c7d350c3a9e8639ea238cc996ec4f6dcf1e35cd"`, engine `node 22.20.0`.
+- Bundles an agent system (`jetskiAgent/main.js`, 11.8MB) using Connect-RPC for IPC between renderer and main process (`@connectrpc/connect-node`, `@exa/agent-ui-toolkit`).
+- Ships with `anthropic.claude-code` extension preinstalled. **Antigravity is itself a host for Claude Code.**
+- `chat` subcommand exposes agent mode via `antigravity chat --mode agent <prompt>`. Modes: `ask`, `edit`, `agent`, or custom. BUT: opens an IDE window. No `-p`/`--print`, no `--output-format json`, no headless stdout.
+- `serve-web` subcommand exists but the required `antigravity-tunnel` binary is missing from the bundle (verified: `spawn ... antigravity-tunnel ENOENT`). Server-mode is broken on this install.
+- No public RPC port, no exposed agent endpoint, no CLI flag to dump agent state. The agent is renderer-bound by design.
+
+**Conclusion — different category from §29.12 (Gemini) / §29.13 (Grok) / §29.14 (Jules) / §29.17 (Grok Build):**
+
+Those lanes share a contract: headless stdin → JSON/text stdout → script parses → queen reaps. Antigravity violates this contract at the binary level — not a flag we can flip, not a wrapper we can build. Wrapping `chat --mode agent` in a `start --isolated` task script would spawn Antigravity IDE windows the operator never asked for, and the "reap" would have no completion signal because the agent's output never leaves the renderer process.
+
+**What Antigravity IS in the queen-protocol taxonomy:**
+
+A **parallel-queen lane**. The operator launches a second concurrent queen by opening Antigravity IDE in a separate workspace, where the bundled Claude Code extension or jetskiAgent runs as the queen for that workspace. This is a topology change, not a lane addition:
+
+| Aspect | Headless sidecar lanes (§29.12-29.17) | Antigravity parallel-queen lane (§29.19) |
+|---|---|---|
+| Spawn shape | `kimi-task.sh start --isolated <prompt>` from queen | `antigravity ~/projects/<shard-root>` from operator |
+| Reap shape | `kimi-task.sh result <pid>` → diff in JSON | operator-driven; queen reads worktree at converge |
+| Worktree | auto-created from HEAD via task script | manual via `git worktree add` or operator-driven |
+| Completion signal | PID exit + meta.json status field | none headless; operator visually confirms |
+| Cap accounting | `~/.<lane>/.daily-cap` file | N/A — IDE is operator-time-bounded, not request-bounded |
+| Dispatch-lock | required (per-shard) | **still required** — both queens write to same colony tree |
+| Concurrent dispatch | yes, parallel from same queen | 1 per Antigravity IDE window; N windows = N parallel queens |
+
+**Where Antigravity uniquely adds value:**
+
+1. **True parallel-queen execution.** Claude Code queen runs in terminal on shard A. Antigravity IDE runs on shard B with its agent mode (jetskiAgent or the bundled `anthropic.claude-code` extension) targeting `~/projects/<colony>/shard-b/`. Both write to the same colony tree but to non-overlapping shards. Multi-queen is achievable *without* operator context-switching between terminals — each queen has its own IDE workspace.
+
+2. **3-way merge UI at converge.** When sidecars in shard A produce competing diffs (e.g., kimi-isolated and gemini-isolated each modified `src/api/foo.py` differently), `antigravity -m <kimi-diff> <gemini-diff> <base> <merged>` opens an interactive 3-way merge view. Useful for the rare branching-shard pattern (§4.2 branching = different code paths) when the queen can't resolve mechanically.
+
+3. **Goto-handoff pointers in reports.** Reviewer-ant reports that say "see `src/foo.py:127` for the unverified assumption" can be enriched with `antigravity -g src/foo.py:127:8` pointers — operator click → opens at exact line/col in the IDE. Reduces cognitive cost of report follow-up.
+
+**Mandatory dispatch-lock semantics across queens:**
+
+If the Claude Code queen holds the shard A lock and the Antigravity queen also wants shard A, the second queen MUST block on lock acquisition (`scripts/dispatch-lock-from-path.sh check <colony> <shard>`). This is the same rule as §29.10 — multiple queens are no different from multiple sidecars in the same colony from the lock's perspective. **The cross-queen lock check is operator discipline, not enforceable at the script level**, because the Antigravity queen runs inside an IDE process that the Claude Code queen has no PID handle on.
+
+**Routing rule (HARD — same shape as §29.13's Grok rule, different reason):**
+
+| Trigger | Route | Why |
+|---|---|---|
+| Single shard, headless dispatch needed | Kimi / Codex / Gemini / Grok-Build | Antigravity has no headless surface |
+| Two independent shards in the same colony, operator wants visual progress on both | **Claude Code queen + Antigravity parallel queen** | True parallelism without terminal context-switching |
+| Converge step with competing diffs that aren't mechanically resolvable | **`antigravity -m`** | Interactive 3-way merge UI |
+| Reviewer reports with file-line callouts | **`antigravity -g file:line`** in report addenda | Goto-handoff for operator follow-up |
+| Single shard, "use all the sidecars" | Kimi+Codex+Gemini parallel (existing matrix) | Do NOT add Antigravity here — same shard would mean lock contention against the headless workers |
+
+**Anti-fix — what NOT to do (saving the next operator from repeating this):**
+
+1. **Do not write `~/.claude/scripts/antigravity-task.sh`** with `start --isolated` semantics that wrap `chat --mode agent`. The window opens; the operator has to drive it; the "task script" lies about being headless. The right shape is operator-launched, not script-launched.
+2. **Do not add Antigravity to `audit-worker-fleet.sh` LANES.** The audit script checks for `is_*_alive` / `guard_data_sharing` / `dispatch-lock` / `ping_*` — Antigravity has no `-task.sh` to grep, no PID lifecycle to verify, no dispatch-lock semantics enforceable at the script level. Adding it would create CASE-BUG-like false signals.
+3. **Do not promote Antigravity to "default coding lane" because it's another sidecar.** Same anti-fix line that §29.13 (Grok) and §29.14 (Jules) carry. Different categories compose multiplicatively; collapsing them collapses the value.
+4. **Do not assume the Antigravity queen reads the protocol.** If the operator launches Antigravity's agent mode on a shard, the agent inside the IDE may not have CLAUDE.md/QUEEN_PROTOCOL.md context wired the same way. Operator-discipline rule: when launching Antigravity for a parallel-queen role, drop the relevant `colony.json` + `QUEEN_PROTOCOL.md` reference into the IDE workspace explicitly. *Special case:* the bundled `anthropic.claude-code` extension running in Antigravity's terminal IS protocol-aware — same `~/.claude/` config applies. The non-protocol-aware surface is `antigravity chat --mode agent` (jetskiAgent), NOT terminal-hosted Claude Code.
+5. **Do not script `dispatch-lock-from-path.sh` around Antigravity launches.** The lock requires a PID holder; an Antigravity-hosted queen runs inside an Electron process the Claude Code queen has no PID handle on. Wrapping `antigravity <workspace>` in `acquire-lock` would either (a) lock the launcher's PID, which exits immediately leaving an orphan lock, or (b) require the operator to manually release. The mistake a scripter will try first; named here so they don't. Cross-queen lock-respect remains operator discipline (see "Mandatory dispatch-lock semantics across queens" paragraph above) — not script-enforceable until the v2.17.x harness-verification work lands.
+
+**Health surface (`sidecar-health.sh:75-89`):** `ping_antigravity()` verifies `~/.antigravity/antigravity/bin/antigravity --version` responds within `TIMEOUT_SECS=10`. Report grows to **8-way surface** (Claude+Kimi+Codex+Gemini+Grok-intel+Jules-async+Grok-Build-coding+Antigravity-parallel-queen). Health JSON gains `antigravity: { healthy, checked_at }`. Exit code 0 still requires only Kimi+Codex healthy — Antigravity is additive, **and** structurally non-blocking (its absence just means no parallel-queen lane is available; the headless coding pool is unaffected).
+
+**Smoke-tested live (2026-05-22 13:21 UTC):** `sidecar-health.sh check` correctly reports Antigravity HEALTHY when binary is present + `--version` responds. Confirmed binary present at `~/.antigravity/antigravity/bin/antigravity` symlinked to `/Applications/Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide`.
+
+**Coverage gap (deferred to v2.17.x or later):** the parallel-queen pattern's cross-queen dispatch-lock check is documented as operator discipline. Hardening would require either (a) the Antigravity-side queen running a wrapper that checks `dispatch-lock-from-path.sh` before any agent dispatch, or (b) a colony-watcher daemon (§29.8) that observes both queens' writes and yells on overlap. Deferred until evidence of cross-queen collision in a real colony.
+
+**Honest characterization for the matrix:** the §29.18 audit script's lane roster does NOT grow. The §29.19 entry adds a new *category* of lane (parallel-queen, operator-driven), not a new headless-sidecar row. Two different things; the audit table stays scoped to headless workers.
 
 ---
 

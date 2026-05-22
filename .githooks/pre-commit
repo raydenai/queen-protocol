@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# queen-protocol pre-commit hook
+#
+# Catches §29.18 worker-fleet drift before it ships. If any required helper is
+# missing from ~/.claude/scripts/*-task.sh, the commit is blocked with a
+# pointer to the audit script.
+#
+# Activation (one-time):
+#   git config core.hooksPath .githooks
+#
+# Override (NOT RECOMMENDED — pulls a real lie into the audit matrix):
+#   git commit --no-verify
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+AUDIT_SCRIPT="${REPO_ROOT}/scripts/audit-worker-fleet.sh"
+
+if [[ ! -x "$AUDIT_SCRIPT" ]]; then
+  # Script absent in this checkout — skip (e.g. historical rebase, fresh clone before bootstrap).
+  exit 0
+fi
+
+# Only run when protocol-affecting files are staged. No-op on README typo fixes etc.
+TOUCHED_PATHS=$(git diff --cached --name-only)
+if ! echo "$TOUCHED_PATHS" | grep -qE '^(QUEEN_PROTOCOL\.md|CHANGELOG\.md|scripts/|.githooks/)'; then
+  exit 0
+fi
+
+if ! "$AUDIT_SCRIPT" --quiet 2>&1; then
+  echo "" >&2
+  echo "[pre-commit] §29.18 worker-fleet audit failed — commit blocked." >&2
+  echo "  Run: $AUDIT_SCRIPT" >&2
+  echo "  Fix the gap, OR (NOT RECOMMENDED) bypass with: git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0
