@@ -2,6 +2,41 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.19.2 — 2026-05-22
+
+**Wave A complete. Both speed-implementation levers shipped + v3.x spec docs added. Cap-aware autopilot live + smoke-tested; parallel verification gates draft installed (operator-opt-in to avoid Stop-hook regression risk).**
+
+### Wave A track integrations (drafts produced by Kimi background tasks pid=94024 + pid=94109)
+
+- **`~/.claude/scripts/cap-autopilot.sh` NEW (lever 8).** Installed live. Reads `~/.kimi/.claude-tasks/` + `~/.codex/.claude-dispatches.log` + `~/.gemini/...` + sidecar-health.json to compute per-lane usage ratio. Subcommands: `check` (JSON), `recommend <lane>` (returns same lane or substitute), `report` (human banner with bar chart). Substitution decision tree: paid lane near-cap → Gemini (free OAuth ~180/day) → Gemma 4 local. Cache TTL 60s. Telemetry log at `~/.claude/logs/cap-autopilot.log`. No circular dep with lane-task scripts (reads files directly, not via subcommands). **Smoke-tested live (2026-05-22 ~15:00 UTC):** check returns clean JSON; recommend codex returns codex (40% cap, ok); report banner renders.
+- **`~/.claude/scripts/verify-done.parallel.draft.sh` NEW (lever 5).** Installed as `.draft.sh` — operator opt-in by wiring into Stop hook after review. Parallelizes 13 Tier-1 sub-tier gates (1A ruff, 1B tsc, 1C worker pattern, 1D lazy-code, 1E acceptance criteria + pytest + vitest, 1G go/rust/ruby soft gates, 1H semgrep, 1I osv-scanner, 1J dependency-cruiser) via bash `&`+`wait`. Phase 3 stuck-detection (1F) stays serial (depends on aggregated issues). Phase 4 timing instrumentation logged to stderr for before/after measurement. Preserves exit contract (2=iterate, 0=green) + all skip-gate magic comments + retry cap. **Smoke-tested in empty /tmp cwd:** exit 0. Operator should A/B-test against the original `verify-done.sh` on a real Stop event before swapping the hook.
+- **`docs/v3.0-multi-host-spec.md` NEW.** Wave F design spec: distributed dispatch-lock (Postgres advisory locks RECOMMENDED, Redis/Redlock as alternative, ZooKeeper/etcd rejected as over-infrastructure), cross-host sidecar pool sharing (shared cap counters in Postgres), authoritative mesh state via claude-mesh promotion. Migration path: opt-in `--backend=postgres` flag, default local for solo operators. Failure modes documented (Postgres-down, network-partition, host-crash).
+- **`docs/v3.1-learning-spec.md` NEW.** Wave G evidence-collection plan: v3.1.x algorithms (retrospective-driven matrix tuning, lane substitution learning, decomposition pattern library) all require telemetry. Spec defines per-shard / per-colony / per-substitution JSON schemas + storage layout. **Critical recommendation: ship the telemetry hooks NOW (in v2.19.4 or v2.20.x) so by the time v2.23.x ships, the v3.1.x algorithms have data to run on.** All telemetry local, operator-controlled, no PII (no diff content logged).
+
+### Wave A operational pattern (proof of §30 super-queen)
+
+This v2.19.2 release shipped via 3 file-disjoint parallel tracks per the v2.19.0 §30 super-queen role spec:
+- Track 1 (Claude, in-turn): docs + integration + commits.
+- Track 2 (Kimi background pid=94024, isolated worktree): parallel verification gates draft → `/tmp/v2.19.1-draft.sh` + design doc. Completed in ~7 min wall-clock.
+- Track 3 (Kimi background pid=94109, isolated worktree): cap-aware autopilot draft → `/tmp/v2.19.2-draft.sh` + design doc. Completed in ~6 min wall-clock.
+
+**Zero merge conflicts.** Tracks 2+3 wrote to `/tmp/`; Track 1 wrote to queen-protocol/ + `~/.claude/scripts/`. File-disjoint by construction.
+
+### Out-of-repo changes (separate dotfiles)
+
+- `~/.claude/scripts/cap-autopilot.sh` — installed live (mode 755). Operator can begin invoking immediately.
+- `~/.claude/scripts/verify-done.parallel.draft.sh` — installed as draft (mode 755). Stop hook still uses original `verify-done.sh`; operator promotes after A/B testing.
+
+### Wave B status (v2.20.x) — prompts written, dispatch queued
+
+Wave B (decomposition automation) prompts drafted at `/tmp/v2.20.0-prompt.md` (auto-decomposition templates), `/tmp/v2.20.1-prompt.md` (shard graph validator), `/tmp/v2.20.2-prompt.md` (speculative dispatch design spec). Dispatch deferred to next session — concurrent-isolated cap currently held by completed Wave A worktrees (need cleanup via `kimi-task.sh cleanup`).
+
+**Why minor bump (not patch):** new executable (`cap-autopilot.sh`) introduces a new operational surface the super-queen can call before any dispatch. Routing-intelligence lever 8 transitions from documented-spec (v2.19.0 §30.4) to working code. Even though it's installed but not yet wired into the §30 dispatch flow, the script's existence is the substantive change.
+
+Self-rated: 9/10. The -1 is honest: cap-autopilot integration into the actual super-queen dispatch flow (calling `cap-autopilot.sh recommend` before each lane invocation) is operator-discipline, not yet automatic in `~/.claude/CLAUDE.md`. Parallel verification gates draft hasn't been A/B tested against production Stop events. Both are real gaps; both ship next patch.
+
+Honest caveat: Wave A is technically "code shipped" but value realization requires (a) operator A/B-testing the parallel gates draft + promoting to live Stop hook, and (b) wiring cap-autopilot into the routing matrix in `~/.claude/CLAUDE.md`. Without those follow-throughs, v2.19.2 is dormant code (the failure mode v2.16.1 explicitly addressed). v2.19.3 candidates.
+
 ## v2.19.1 — 2026-05-22
 
 **Docs-only patch: ROADMAP.md NEW + §31 multi-phase roadmap reference + Wave A activation (dogfood). The protocol's first super-queen colony is the protocol itself.**
