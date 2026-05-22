@@ -1,0 +1,285 @@
+{
+  "schema_version": "2.20.0",
+  "examples": [
+    {
+      "input": "build user auth with email + Google OAuth + JWT sessions",
+      "decomposition_type": "feature",
+      "rationale": "Three subsystems (email auth, Google OAuth, JWT session management) touch disjoint file trees after shared types are extracted. Shared types and DB migration are senior shards.",
+      "output": {
+        "colony_id": "2026-05-22-auth-system",
+        "goal": "build user auth with email + Google OAuth + JWT sessions",
+        "shards": [
+          {
+            "id": "s01",
+            "title": "Shared auth types and DB migration",
+            "kind": "code",
+            "tags": ["auth", "migration", "shared-types", "critical-path"],
+            "priority": "critical",
+            "complexity": "complex",
+            "files_allowed": ["supabase/migrations/*_auth_tables.sql", "packages/types/src/auth.ts"],
+            "depends_on": [],
+            "estimated_lines": 80,
+            "skills_required": [".claude/skills/database-patterns", ".claude/skills/supabase"],
+            "gates": ["supabase db lint", "tsc --noEmit -p packages/types"],
+            "deadline_minutes": 30,
+            "routing_tier": "race",
+            "backend": "tournament"
+          },
+          {
+            "id": "s02",
+            "title": "Email auth routes and handlers",
+            "kind": "code",
+            "tags": ["auth", "email", "api-routes"],
+            "priority": "normal",
+            "complexity": "complex",
+            "files_allowed": ["apps/api/src/routes/auth/email*.py", "apps/api/src/services/auth/email*.py"],
+            "depends_on": ["s01"],
+            "estimated_lines": 150,
+            "skills_required": [".claude/skills/fastapi-backend"],
+            "gates": ["pytest apps/api/tests/auth/test_email.py", "ruff check apps/api/src/routes/auth"],
+            "deadline_minutes": 30,
+            "routing_tier": "race",
+            "backend": "claude-ant"
+          },
+          {
+            "id": "s03",
+            "title": "Google OAuth integration",
+            "kind": "code",
+            "tags": ["auth", "oauth", "google", "api-routes"],
+            "priority": "normal",
+            "complexity": "complex",
+            "files_allowed": ["apps/api/src/routes/auth/oauth*.py", "apps/api/src/services/auth/oauth*.py"],
+            "depends_on": ["s01"],
+            "estimated_lines": 120,
+            "skills_required": [".claude/skills/fastapi-backend", ".claude/skills/security-best-practices"],
+            "gates": ["pytest apps/api/tests/auth/test_oauth.py", "ruff check apps/api/src/routes/auth"],
+            "deadline_minutes": 30,
+            "routing_tier": "race",
+            "backend": "claude-ant"
+          },
+          {
+            "id": "s04",
+            "title": "JWT session middleware and utilities",
+            "kind": "code",
+            "tags": ["auth", "jwt", "middleware", "security-critical"],
+            "priority": "normal",
+            "complexity": "complex",
+            "files_allowed": ["apps/api/src/middleware/auth.py", "apps/api/src/lib/jwt*.py"],
+            "depends_on": ["s01"],
+            "estimated_lines": 90,
+            "skills_required": [".claude/skills/security-best-practices", ".claude/skills/fastapi-backend"],
+            "gates": ["pytest apps/api/tests/auth/test_jwt.py", "bandit -r apps/api/src/middleware"],
+            "deadline_minutes": 30,
+            "routing_tier": "race",
+            "backend": "tournament"
+          }
+        ],
+        "dag_validation": {
+          "acyclic": true,
+          "all_deps_resolve": true,
+          "files_overlap": false,
+          "has_starting_shard": true
+        },
+        "assumptions": [
+          "Assumed email auth means password + verification flow, not magic links.",
+          "Assumed Google OAuth uses OAuth2 Authorization Code flow with PKCE.",
+          "Assumed JWT sessions are stateless (no server-side session store)."
+        ]
+      }
+    },
+    {
+      "input": "fix the dashboard chart that shows wrong totals",
+      "decomposition_type": "bug",
+      "rationale": "Single symptom, single subsystem (dashboard chart). Likely a data aggregation bug in one file or a query bug. Single shard.",
+      "output": {
+        "colony_id": "2026-05-22-dashboard-chart-totals",
+        "goal": "Fix: dashboard chart shows wrong totals",
+        "shards": [
+          {
+            "id": "s01",
+            "title": "Fix dashboard chart total aggregation",
+            "kind": "code",
+            "tags": ["bugfix", "dashboard", "frontend"],
+            "priority": "normal",
+            "complexity": "mechanical",
+            "files_allowed": ["apps/dashboard/src/components/Chart.tsx", "apps/dashboard/src/lib/aggregate.ts"],
+            "depends_on": [],
+            "estimated_lines": 15,
+            "skills_required": [".claude/skills/react-nextjs"],
+            "gates": ["pytest apps/dashboard/tests/test_aggregate.py", "tsc --noEmit -p apps/dashboard"],
+            "deadline_minutes": 15,
+            "routing_tier": "review",
+            "backend": "agent:codex-rescue"
+          }
+        ],
+        "dag_validation": {
+          "acyclic": true,
+          "all_deps_resolve": true,
+          "files_overlap": false,
+          "has_starting_shard": true
+        },
+        "assumptions": [
+          "Assumed bug is in frontend aggregation logic, not backend API returning wrong data.",
+          "Assumed 'wrong totals' means sum is incorrect, not missing data points."
+        ]
+      }
+    },
+    {
+      "input": "rename `getUserData` to `loadUser` across codebase",
+      "decomposition_type": "refactor",
+      "rationale": "Pure mechanical rename across codebase. Single-queen, kimi-isolated backend. Broad files_allowed but single shard.",
+      "output": {
+        "colony_id": "2026-05-22-rename-getuserdata",
+        "goal": "Refactor: rename getUserData to loadUser across codebase",
+        "single_queen": true,
+        "shards": [
+          {
+            "id": "s01",
+            "title": "Rename getUserData to loadUser across all packages and apps",
+            "kind": "code",
+            "tags": ["refactor", "rename", "mechanical", "codemod"],
+            "priority": "normal",
+            "complexity": "mechanical",
+            "files_allowed": ["**/src/**/*.{ts,tsx,py}", "**/tests/**/*.{ts,tsx,py}"],
+            "depends_on": [],
+            "estimated_lines": 200,
+            "skills_required": [],
+            "gates": ["tsc --noEmit", "ruff check .", "pytest"],
+            "deadline_minutes": 20,
+            "routing_tier": "solo",
+            "backend": "kimi-isolated"
+          }
+        ],
+        "dag_validation": {
+          "acyclic": true,
+          "all_deps_resolve": true,
+          "files_overlap": false,
+          "has_starting_shard": true
+        },
+        "assumptions": [
+          "Assumed getUserData is a user-defined function, not a third-party API.",
+          "Assumed all call sites should use the new name (no intentional aliases)."
+        ]
+      }
+    },
+    {
+      "input": "ship the billing system",
+      "decomposition_type": "feature",
+      "rationale": "Large feature with shared files (types, migrations, package.json). Must serialize at shared files. 5 shards with explicit senior-first ordering.",
+      "output": {
+        "colony_id": "2026-05-22-billing-system",
+        "goal": "ship the billing system",
+        "shards": [
+          {
+            "id": "s01",
+            "title": "Billing schema migration and shared types",
+            "kind": "code",
+            "tags": ["billing", "migration", "shared-types", "critical-path", "payment"],
+            "priority": "critical",
+            "complexity": "complex",
+            "files_allowed": ["supabase/migrations/*_billing*.sql", "packages/types/src/billing.ts"],
+            "depends_on": [],
+            "estimated_lines": 100,
+            "skills_required": [".claude/skills/database-patterns", ".claude/skills/stripe-best-practices"],
+            "gates": ["supabase db lint", "tsc --noEmit -p packages/types"],
+            "deadline_minutes": 30,
+            "routing_tier": "race",
+            "backend": "tournament"
+          },
+          {
+            "id": "s02",
+            "title": "Stripe integration and webhook handlers",
+            "kind": "code",
+            "tags": ["billing", "payment", "stripe", "security-critical"],
+            "priority": "normal",
+            "complexity": "complex",
+            "files_allowed": ["apps/api/src/integrations/stripe*.py", "apps/api/src/routes/webhooks/stripe*.py"],
+            "depends_on": ["s01"],
+            "estimated_lines": 180,
+            "skills_required": [".claude/skills/stripe-best-practices", ".claude/skills/security-best-practices"],
+            "gates": ["pytest apps/api/tests/integrations/stripe", "bandit -r apps/api/src/integrations/stripe"],
+            "deadline_minutes": 45,
+            "routing_tier": "race",
+            "backend": "specialist:stripe-payment-ant"
+          },
+          {
+            "id": "s03",
+            "title": "Billing API routes and business logic",
+            "kind": "code",
+            "tags": ["billing", "api-routes"],
+            "priority": "normal",
+            "complexity": "complex",
+            "files_allowed": ["apps/api/src/routes/billing*.py", "apps/api/src/services/billing*.py"],
+            "depends_on": ["s01"],
+            "estimated_lines": 150,
+            "skills_required": [".claude/skills/fastapi-backend"],
+            "gates": ["pytest apps/api/tests/routes/billing", "ruff check apps/api/src/routes/billing"],
+            "deadline_minutes": 30,
+            "routing_tier": "race",
+            "backend": "claude-ant"
+          },
+          {
+            "id": "s04",
+            "title": "Dashboard billing UI and subscription management",
+            "kind": "code",
+            "tags": ["billing", "dashboard", "ui-polish", "frontend-taste"],
+            "priority": "normal",
+            "complexity": "complex",
+            "files_allowed": ["apps/dashboard/src/app/billing/**", "apps/dashboard/src/components/billing/**"],
+            "depends_on": ["s03"],
+            "estimated_lines": 200,
+            "skills_required": [".claude/skills/react-nextjs", ".claude/skills/design-systems"],
+            "gates": ["tsc --noEmit -p apps/dashboard", "playwright test apps/dashboard/tests/billing"],
+            "deadline_minutes": 30,
+            "routing_tier": "race",
+            "backend": "agent:codex-rescue"
+          },
+          {
+            "id": "s05",
+            "title": "Package and environment updates for billing deps",
+            "kind": "code",
+            "tags": ["billing", "dep-bump", "mechanical"],
+            "priority": "normal",
+            "complexity": "mechanical",
+            "files_allowed": ["package.json", "pnpm-lock.yaml", ".env.example", "apps/api/pyproject.toml"],
+            "depends_on": ["s02"],
+            "estimated_lines": 30,
+            "skills_required": [],
+            "gates": ["pnpm install --frozen-lockfile", "uv sync"],
+            "deadline_minutes": 15,
+            "routing_tier": "solo",
+            "backend": "kimi-isolated"
+          }
+        ],
+        "dag_validation": {
+          "acyclic": true,
+          "all_deps_resolve": true,
+          "files_overlap": false,
+          "has_starting_shard": true
+        },
+        "assumptions": [
+          "Assumed 'billing system' means Stripe-based subscription billing.",
+          "Assumed dashboard billing UI includes plan selection, invoice list, and cancel flow.",
+          "Assumed shared files (package.json, .env.example) are updated AFTER Stripe dep version is known."
+        ]
+      }
+    },
+    {
+      "input": "improve test coverage",
+      "decomposition_type": "feature",
+      "rationale": "Vague directive with no subsystem scope. Super-queen refuses to expand. This is the canonical 'insufficient scope' case.",
+      "output": {
+        "status": "REFUSED",
+        "reason": "scope insufficient",
+        "requested_clarification": [
+          "Which subsystem(s) need improved coverage? (e.g., auth, billing, dashboard)",
+          "What is the target coverage percentage or metric?",
+          "Are there specific uncovered functions or files the user is concerned about?",
+          "Should this be a standalone colony or piggyback on the next feature colony?"
+        ],
+        "assumptions": [],
+        "note": "Per §30.2, vague directives must not be hallucinated into arbitrary shard graphs. The operator must scope before decomposition."
+      }
+    }
+  ]
+}

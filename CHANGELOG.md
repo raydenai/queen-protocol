@@ -2,6 +2,44 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.20.0 — 2026-05-22
+
+**Wave B complete. Decomposition automation shipped: prompt templates + shard graph validator + speculative-dispatch spec. v2.20.0 bundles all three sub-versions (was planned as v2.20.0/v2.20.1/v2.20.2; bundled because they belong to the same operator-vision deliverable and shipped in the same wave).**
+
+### v2.20.0 sub-deliverables
+
+- **`lib/decompose-prompts/` NEW directory.** 5 prompt-template files Kimi drafted (pid=16769, isolated worktree, ~9 min wall-clock):
+  - `decompose-feature.md` (8.7K) — meta-prompt for feature-grain requests; turns "build feature X" into a §4-shaped shard graph with heuristic checklist, tier decisions per shard, lane assignments, anti-decomposition rule enforcement.
+  - `decompose-bug.md` (5.4K) — template variant for bug-grain requests; single-shard by default, expands only if root cause spans subsystems.
+  - `decompose-refactor.md` (6.1K) — template variant for refactor-grain requests; single-queen (read-coherence-bounded) per §29.18.
+  - `decompose-examples.json` (12.3K) — 5 worked examples (auth flow → 3-shard graph; dashboard chart bug → 1-shard; rename refactor → 1-shard; billing system → 5-shard graph with shared-file serialization; vague directive → refuse-to-expand).
+  - `decompose-design.md` (6.5K) — design rationale: why templates over raw LLM reasoning (reproducibility, calibration, debug-ability).
+- **`scripts/validate-shard-graph.sh` NEW (17.6K).** Kimi drafted (pid=16916, isolated worktree, ~9 min wall-clock). Pre-dispatch validator: JSON schema check, `files_allowed` overlap detection (§30.3 anti-decomposition rule made enforceable), dependency cycle detection, tier validity, cap-awareness sanity. Modes: `--quiet` for hook integration, `--fix` for opt-in auto-merge of overlapping shards. **Smoke-tested live:** runs cleanly, "VALID: shard graph passes all checks" on fixture 1 from test corpus.
+- **`lib/decompose-prompts/validator-test-corpus.json` NEW (6.1K).** 5 fixture shard graphs (valid + invalid cases) for regression testing the validator.
+- **`docs/v2.20.1-validator-design.md` NEW (6K).** Validation rule reference, acceptance criteria, backout plan.
+- **`docs/v2.20.2-speculative-dispatch-spec.md` NEW (9.2K).** Spec for speculative dispatch at PLAN (lever 6, §30.4). Claude-authored in-turn (concurrent-isolated cap blocked Kimi dispatch). State-machine extension (3 new SHARD states: SPECULATIVE_DISPATCHED, SPECULATIVE_CONFIRMED, SPECULATIVE_DISCARDED), confidence threshold (>0.85 default), plan-change detection rules, cost accounting (target discard rate <15%), implementation skeleton, 7 risk catalog entries with mitigations. Implementation deferred — spec only ships v2.20.0.
+
+### Wave B operational pattern (second §30 super-queen dogfood proof)
+
+3 file-disjoint parallel tracks:
+- Track 1 (Claude, in-turn): docs + integration + v2.20.2 spec inline
+- Track 2 (Kimi background pid=16769, isolated worktree): v2.20.0 decomposition templates
+- Track 3 (Kimi background pid=16916, isolated worktree): v2.20.1 validator
+
+Zero merge conflicts. Wave A proved the pattern; Wave B replicated it. Two for two.
+
+### What v2.20.0 does NOT do
+
+- Does NOT auto-invoke `validate-shard-graph.sh` from the super-queen yet. That wiring is v2.20.1 candidate (super-queen call between DECOMPOSE and DISPATCH; refuses to dispatch on validation failure unless `--fix` resolution applied).
+- Does NOT implement speculative dispatch — spec only. Implementation requires `kimi-task.sh` + `codex-task.sh` `--speculative` flag, colony-watcher discard-rate alerting, and queen orchestrator state-machine extension. Multi-session work.
+- Does NOT auto-decompose without operator review. Templates produce shard-graph JSON; operator reviews + edits before dispatch.
+
+**Why minor bump (not patch):** new directories (`lib/decompose-prompts/`), new executable in `scripts/` (`validate-shard-graph.sh` with new subcommand surface), new docs spec. Lever 6 + 9 transitions from documented-spec (v2.19.0 §30.4) to working artifacts. Auto-decomposition + validator are operationally usable today (operator invokes manually).
+
+Self-rated: 9/10. The -1: validator not yet wired into super-queen's actual dispatch flow (still operator-discipline-driven); speculative-dispatch spec has implementation deferred. Both v2.20.x patches.
+
+Honest caveat: same dormant-code risk as v2.19.2 — Wave B artifacts are installed but value realization requires (a) operator using the decompose-prompts to actually decompose features, (b) wiring `validate-shard-graph.sh` into super-queen pre-dispatch step, (c) implementing speculative dispatch per spec. Without follow-through, v2.20.0 is documentation + utilities without flow integration.
+
 ## v2.19.2 — 2026-05-22
 
 **Wave A complete. Both speed-implementation levers shipped + v3.x spec docs added. Cap-aware autopilot live + smoke-tested; parallel verification gates draft installed (operator-opt-in to avoid Stop-hook regression risk).**

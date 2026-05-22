@@ -3801,7 +3801,7 @@ The full plan lives in [`ROADMAP.md`](./ROADMAP.md) at repo root. This section i
 |---|---|---|---|
 | 1 | v2.18.0, v2.19.0 | Foundation: matrix v2 + super-queen role spec | ✓ shipped |
 | 2 | v2.19.1, **v2.19.2** | Speed implementation: docs + parallel gates + cap-aware autopilot | ✓ Wave A complete |
-| 3 | v2.20.0–v2.20.2 | Decomposition automation: prompt templates + validator + speculative dispatch | Drafted in roadmap |
+| 3 | **v2.20.0** (bundled) | Decomposition automation: prompt templates + validator + speculative dispatch | ✓ Wave B complete |
 | 4 | v2.21.0–v2.21.2 | Cross-queen coordination: shared cache + serialization + progress aggregation | Drafted in roadmap |
 | 5 | v2.22.0–v2.22.2 | Colony-level verification: integration gate + reuse + Stop-hook parallel | Drafted in roadmap |
 | 6 | v2.23.0–v2.23.2 | Operational UX: meshboard view + cost dashboard + failure-replay | Drafted in roadmap |

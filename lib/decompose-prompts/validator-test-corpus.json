@@ -1,0 +1,224 @@
+[
+  {
+    "_comment": "FIXTURE 1 — VALID: minimal solo shard, clean DAG, solo tier",
+    "colony_id": "test-01-solo-pass",
+    "shards": [
+      {
+        "id": "s01",
+        "title": "Fix typo in auth middleware",
+        "tags": ["auth", "typo"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "obvious",
+        "files_allowed": ["src/auth/middleware.py"],
+        "depends_on": [],
+        "estimated_lines": 5,
+        "backend": "queen-direct"
+      }
+    ]
+  },
+  {
+    "_comment": "FIXTURE 2 — VALID: 4-shard DAG with disjoint files, proper review/race tiers, cap risk warning expected",
+    "colony_id": "test-02-dag-pass",
+    "shards": [
+      {
+        "id": "s01",
+        "title": "Shared types",
+        "tags": ["types", "broker"],
+        "kind": "code",
+        "priority": "critical",
+        "complexity": "complex",
+        "files_allowed": ["src/types.ts"],
+        "depends_on": [],
+        "estimated_lines": 80,
+        "backend": "claude-ant"
+      },
+      {
+        "id": "s02",
+        "title": "Auth routes",
+        "tags": ["auth"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "mechanical",
+        "files_allowed": ["src/auth/routes.ts"],
+        "depends_on": ["s01"],
+        "estimated_lines": 45,
+        "backend": "agent:codex-rescue"
+      },
+      {
+        "id": "s03",
+        "title": "Billing routes",
+        "tags": ["billing"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "mechanical",
+        "files_allowed": ["src/billing/routes.ts"],
+        "depends_on": ["s01"],
+        "estimated_lines": 45,
+        "backend": "agent:codex-rescue"
+      },
+      {
+        "id": "s04",
+        "title": "Dashboard routes",
+        "tags": ["dashboard"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "mechanical",
+        "files_allowed": ["src/dashboard/routes.ts", "src/dashboard/components.tsx"],
+        "depends_on": ["s01"],
+        "estimated_lines": 60,
+        "backend": "agent:codex-rescue"
+      }
+    ]
+  },
+  {
+    "_comment": "FIXTURE 3 — VALID: 6 shards all on kimi-isolated to trigger CAP-RISK warning, but otherwise valid",
+    "colony_id": "test-03-cap-warning",
+    "shards": [
+      {
+        "id": "s01",
+        "title": "Format utils",
+        "tags": ["format"],
+        "kind": "code",
+        "priority": "low",
+        "complexity": "mechanical",
+        "files_allowed": ["src/utils/a.py"],
+        "depends_on": [],
+        "estimated_lines": 10,
+        "backend": "kimi-isolated"
+      },
+      {
+        "id": "s02",
+        "title": "Format helpers",
+        "tags": ["format"],
+        "kind": "code",
+        "priority": "low",
+        "complexity": "mechanical",
+        "files_allowed": ["src/utils/b.py"],
+        "depends_on": [],
+        "estimated_lines": 10,
+        "backend": "kimi-isolated"
+      },
+      {
+        "id": "s03",
+        "title": "Format constants",
+        "tags": ["format"],
+        "kind": "code",
+        "priority": "low",
+        "complexity": "mechanical",
+        "files_allowed": ["src/utils/c.py"],
+        "depends_on": [],
+        "estimated_lines": 10,
+        "backend": "kimi-isolated"
+      },
+      {
+        "id": "s04",
+        "title": "Format parsers",
+        "tags": ["format"],
+        "kind": "code",
+        "priority": "low",
+        "complexity": "mechanical",
+        "files_allowed": ["src/utils/d.py"],
+        "depends_on": [],
+        "estimated_lines": 10,
+        "backend": "kimi-isolated"
+      },
+      {
+        "id": "s05",
+        "title": "Format validators",
+        "tags": ["format"],
+        "kind": "code",
+        "priority": "low",
+        "complexity": "mechanical",
+        "files_allowed": ["src/utils/e.py"],
+        "depends_on": [],
+        "estimated_lines": 10,
+        "backend": "kimi-isolated"
+      },
+      {
+        "id": "s06",
+        "title": "Format loaders",
+        "tags": ["format"],
+        "kind": "code",
+        "priority": "low",
+        "complexity": "mechanical",
+        "files_allowed": ["src/utils/f.py"],
+        "depends_on": [],
+        "estimated_lines": 10,
+        "backend": "kimi-isolated"
+      }
+    ]
+  },
+  {
+    "_comment": "FIXTURE 4 — INVALID: anti-decomposition rule violation (s01 and s02 both touch src/types.ts)",
+    "colony_id": "test-04-overlap-fail",
+    "shards": [
+      {
+        "id": "s01",
+        "title": "Auth types",
+        "tags": ["auth", "types"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "complex",
+        "files_allowed": ["src/types.ts", "src/auth/middleware.ts"],
+        "depends_on": [],
+        "estimated_lines": 40,
+        "backend": "claude-ant"
+      },
+      {
+        "id": "s02",
+        "title": "Billing types",
+        "tags": ["billing", "types"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "complex",
+        "files_allowed": ["src/types.ts", "src/billing/routes.ts"],
+        "depends_on": [],
+        "estimated_lines": 40,
+        "backend": "claude-ant"
+      }
+    ]
+  },
+  {
+    "_comment": "FIXTURE 5 — INVALID: dependency cycle s01 -> s02 -> s03 -> s01",
+    "colony_id": "test-05-cycle-fail",
+    "shards": [
+      {
+        "id": "s01",
+        "title": "API client",
+        "tags": ["api"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "mechanical",
+        "files_allowed": ["src/api/client.ts"],
+        "depends_on": ["s03"],
+        "estimated_lines": 25,
+        "backend": "agent:codex-rescue"
+      },
+      {
+        "id": "s02",
+        "title": "API hooks",
+        "tags": ["api"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "mechanical",
+        "files_allowed": ["src/api/hooks.ts"],
+        "depends_on": ["s01"],
+        "estimated_lines": 25,
+        "backend": "agent:codex-rescue"
+      },
+      {
+        "id": "s03",
+        "title": "API store",
+        "tags": ["api"],
+        "kind": "code",
+        "priority": "normal",
+        "complexity": "mechanical",
+        "files_allowed": ["src/api/store.ts"],
+        "depends_on": ["s02"],
+        "estimated_lines": 25,
+        "backend": "agent:codex-rescue"
+      }
+    ]
+  }
+]
