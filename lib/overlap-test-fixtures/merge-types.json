@@ -1,0 +1,29 @@
+{
+  "schema_version": "2.21.1-test",
+  "description": "Two queens both add types to shared barrel — MUST merge (§30.3)",
+  "expected_result": "MERGE",
+  "shards": [
+    {
+      "id": "types-s01",
+      "title": "Add UserProfile types",
+      "files_allowed": [
+        "packages/types/src/user.ts",
+        "packages/types/src/index.ts"
+      ],
+      "depends_on": [],
+      "priority": "critical",
+      "backend": "claude-ant"
+    },
+    {
+      "id": "types-s02",
+      "title": "Add BillingEvent types",
+      "files_allowed": [
+        "packages/types/src/billing.ts",
+        "packages/types/src/index.ts"
+      ],
+      "depends_on": [],
+      "priority": "normal",
+      "backend": "kimi-isolated"
+    }
+  ]
+}

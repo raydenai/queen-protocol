@@ -1,0 +1,31 @@
+{
+  "schema_version": "2.21.1-test",
+  "description": "Two queens both add deps to package.json — MUST merge (§30.3)",
+  "expected_result": "MERGE",
+  "shards": [
+    {
+      "id": "webui-s01",
+      "title": "Add Button component",
+      "files_allowed": [
+        "apps/web/src/components/Button.tsx",
+        "apps/web/src/components/Button.test.tsx",
+        "package.json"
+      ],
+      "depends_on": [],
+      "priority": "normal",
+      "backend": "kimi-isolated"
+    },
+    {
+      "id": "webui-s02",
+      "title": "Add Tooltip component",
+      "files_allowed": [
+        "apps/web/src/components/Tooltip.tsx",
+        "apps/web/src/components/Tooltip.test.tsx",
+        "package.json"
+      ],
+      "depends_on": [],
+      "priority": "normal",
+      "backend": "kimi-isolated"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": "2.21.1-test",
+  "description": "Two queens both add migrations — NEVER overlap, hard block",
+  "expected_result": "NEVER",
+  "shards": [
+    {
+      "id": "db-s01",
+      "title": "Add users table migration",
+      "files_allowed": [
+        "supabase/migrations/20260507000001_add_users.sql",
+        "apps/api/src/models/user.py"
+      ],
+      "depends_on": [],
+      "priority": "critical",
+      "backend": "claude-ant"
+    },
+    {
+      "id": "db-s02",
+      "title": "Add orders table migration",
+      "files_allowed": [
+        "supabase/migrations/20260507000002_add_orders.sql",
+        "apps/api/src/models/order.py"
+      ],
+      "depends_on": [],
+      "priority": "critical",
+      "backend": "claude-ant"
+    }
+  ]
+}

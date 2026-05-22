@@ -1,0 +1,31 @@
+{
+  "schema_version": "2.21.1-test",
+  "description": "Two queens add separate modules to same __init__.py — CAN serialize (§30.5 axis 2)",
+  "expected_result": "SERIALIZE",
+  "shards": [
+    {
+      "id": "auth-s01",
+      "title": "Add auth service module",
+      "files_allowed": [
+        "apps/api/src/services/auth.py",
+        "apps/api/src/services/auth_test.py",
+        "apps/api/src/services/__init__.py"
+      ],
+      "depends_on": [],
+      "priority": "normal",
+      "backend": "kimi-isolated"
+    },
+    {
+      "id": "billing-s01",
+      "title": "Add billing service module",
+      "files_allowed": [
+        "apps/api/src/services/billing.py",
+        "apps/api/src/services/billing_test.py",
+        "apps/api/src/services/__init__.py"
+      ],
+      "depends_on": [],
+      "priority": "normal",
+      "backend": "kimi-isolated"
+    }
+  ]
+}

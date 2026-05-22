@@ -1,0 +1,31 @@
+{
+  "schema_version": "2.21.1-test",
+  "description": "Completely disjoint queens — no overlaps, clean dispatch",
+  "expected_result": "CLEAN",
+  "shards": [
+    {
+      "id": "webui-s01",
+      "title": "Add dashboard page",
+      "files_allowed": [
+        "apps/web/src/pages/Dashboard.tsx",
+        "apps/web/src/pages/Dashboard.test.tsx",
+        "apps/web/src/hooks/useDashboard.ts"
+      ],
+      "depends_on": [],
+      "priority": "normal",
+      "backend": "claude-ant"
+    },
+    {
+      "id": "api-s01",
+      "title": "Add dashboard API route",
+      "files_allowed": [
+        "apps/api/src/routes/dashboard.py",
+        "apps/api/src/routes/dashboard_test.py",
+        "apps/api/src/services/metrics.py"
+      ],
+      "depends_on": [],
+      "priority": "normal",
+      "backend": "kimi-isolated"
+    }
+  ]
+}

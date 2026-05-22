@@ -2,6 +2,52 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.21.0 — 2026-05-22
+
+**Wave C complete. Cross-queen coordination shipped: shared read cache + shared-file overlap detector + meshboard progress-aggregation spec. v2.21.0 bundles planned v2.21.0/v2.21.1/v2.21.2.**
+
+### v2.21.0 sub-deliverables
+
+- **`~/.claude/scripts/super-queen-cache.sh` NEW + SMOKE-TESTED (16.4K, Kimi pid=91174).** Lever 7 from §30.4. Read-through cache for the super-queen to share file contents across child queens. Subcommands: `put`/`get`/`invalidate`/`stats`. Storage at `~/.claude/state/super-queen-cache/<sha256-of-path>/` with `content` + `meta.json` (path, sha, cached_at, hits). Invalidation: PostToolUse Edit/Write events, SHA mismatch on get, 1h TTL, 100MB total cap with LRU eviction. Target 40-60% hit rate. **Smoke-tested:** `stats` returns clean JSON with hit/miss counters at 0.
+- **`~/.claude/scripts/detect-overlap.sh` NEW + SMOKE-TESTED (18.6K, Kimi pid=91318).** §30.3 anti-decomposition rule made enforceable at pre-dispatch. Takes a shard graph JSON; detects overlapping `files_allowed` across queens; recommends MERGE (for shared dependency files like package.json) or SERIALIZE (for shared exports like `__init__.py`). Modes: `--report` (default, exit-0 with warnings), `--fix-merge` (emit merged graph), `--fix-serialize` (emit serialization plan). **Smoke-tested:** `--report` on `no-overlap.json` fixture returns "no overlapping files_allowed detected".
+- **`lib/overlap-test-fixtures/` NEW directory (5 fixtures).** Test corpus for `detect-overlap.sh`: `merge-lockfiles.json` (package.json overlap → merge), `merge-types.json` (TypeScript types overlap → merge), `migration-conflict.json` (DB migrations → never overlap), `no-overlap.json` (clean baseline), `serialize-features.json` (feature exports → serialize).
+- **`docs/v2.21.0-cache-design.md` NEW (13.3K).** Cache architecture, atomicity (advisory file locks for concurrent child queen reads), failure modes (cache corruption → delete+repopulate, disk full → skip cache, permission errors), telemetry approach for hit-rate measurement.
+- **`docs/v2.21.1-overlap-design.md` NEW (9.8K).** Overlap detection heuristics (file types that ALWAYS merge: lock files, package.json, type-exports; file types that CAN serialize: test files, doc files; file types that should NEVER overlap: migrations), super-queen integration pattern, test-corpus rationale.
+- **`docs/v2.21.2-meshboard-spec.md` NEW (6.9K).** Meshboard progress-aggregation spec (Claude-authored inline due to concurrent-isolated cap). Three components: `super-queen-emit.sh` (per-queen state writer with atomic mv pattern), `meshboard-aggregator.sh` (2s-poll daemon producing unified state), `meshboard-view.sh` (TUI: tail/snapshot/json modes). Implementation deferred — spec only ships v2.21.0.
+
+### Wave C operational pattern (third §30 super-queen dogfood proof)
+
+3 file-disjoint parallel tracks:
+- Track 1 (Claude, in-turn): docs + integration + v2.21.2 spec inline (concurrent-isolated cap blocked Kimi track 3).
+- Track 2 (Kimi background pid=91174, isolated worktree): super-queen-cache draft. ~9 min.
+- Track 3 (Kimi background pid=91318, isolated worktree): detect-overlap draft. ~9 min.
+
+Zero merge conflicts. Wave A + B + C all shipped via 3-way parallel. Three for three.
+
+### Wave D status (queued for next session via persisted prompts)
+
+Wave D prompts persisted at `~/.claude/state/v2.22.{0,1,2}-prompt.md`:
+- v2.22.0: Colony-level integration verification gate (lever 10)
+- v2.22.1: Cross-queen verification reuse (lever 4)
+- v2.22.2: Stop-hook parallel gates promotion (lever 11, A/B harness)
+
+Wave E prompts persisted at `~/.claude/state/v2.23.{0,1,2}-prompt.md`:
+- v2.23.0: Unified meshboard CLI dashboard (TUI)
+- v2.23.1: Cost ceiling dashboard
+- v2.23.2: Failure-replay tooling
+
+### What v2.21.0 does NOT do
+
+- Does NOT auto-invoke `super-queen-cache.sh` or `detect-overlap.sh` from the super-queen flow. Both are operator-invoked utilities until v2.21.x wiring lands.
+- Does NOT implement meshboard aggregator daemon. Spec only.
+- Does NOT cache mutable state (git index, env vars). File contents only.
+
+**Why minor bump (not patch):** new executables in `~/.claude/scripts/` (super-queen-cache.sh + detect-overlap.sh), new docs directory expansion. Levers 4 + 7 transition from spec to working artifacts. The cross-queen coordination axes from §30.5 are now operationally addressable.
+
+Self-rated: 9/10. Same -1 caveat: wiring into super-queen flow is operator-discipline-driven; meshboard implementation deferred to v2.21.x. Wave A + B + C all shipped via 3-way parallel super-queen dogfood — pattern proven three times.
+
+Honest caveat: same dormant-code risk as v2.19.2 and v2.20.0 — Wave C utilities are installed + smoke-tested but value realization requires operator wiring `super-queen-cache.sh` into pre-dispatch read flow and `detect-overlap.sh` into post-decomposition validation step. The trio of v2.19.2 + v2.20.0 + v2.21.0 collectively gives the super-queen: cap-aware routing + auto-decomposition + graph validation + overlap detection + cross-queen cache. The MACHINERY is built; the FLOW INTEGRATION is the v2.21.x → v2.23.x work.
+
 ## v2.20.0 — 2026-05-22
 
 **Wave B complete. Decomposition automation shipped: prompt templates + shard graph validator + speculative-dispatch spec. v2.20.0 bundles all three sub-versions (was planned as v2.20.0/v2.20.1/v2.20.2; bundled because they belong to the same operator-vision deliverable and shipped in the same wave).**

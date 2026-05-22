@@ -31,9 +31,9 @@ Today (v2.19.0): super-queen role is spec'd but operator-discipline-driven. Road
 | v2.18.0 | Speed-first matrix defaults (race 5→3 files; parallel review 1+) + Antigravity §29.19 parallel-queen lane | ✓ shipped 2026-05-22 |
 | v2.19.0 | Super-queen role spec §30 (10 routing levers, 5 coordination axes, 6 anti-fixes) | ✓ shipped 2026-05-22 |
 
-## Phase Group 2 — Speed implementation (v2.19.x)
+## Phase Group 2 — Speed implementation (v2.19.x) — ✓ COMPLETE
 
-Implementations of §30 levers 5 and 8. Both already drafted by Kimi background tasks in Wave A.
+Implementations of §30 levers 5 and 8. Wave A shipped 2026-05-22.
 
 | Version | Deliverable | Effort | Depends on | Wave |
 |---|---|---|---|---|
@@ -43,9 +43,9 @@ Implementations of §30 levers 5 and 8. Both already drafted by Kimi background 
 
 **Parallelizable:** v2.19.2 and v2.19.3 ship in same wave (file-disjoint).
 
-## Phase Group 3 — Decomposition automation (v2.20.x)
+## Phase Group 3 — Decomposition automation (v2.20.x) — ✓ COMPLETE (bundled in v2.20.0)
 
-The super-queen's hardest job (auto-decomposing "build feature X" into a shard graph) becomes a script-assisted prompt-template, not pure operator-discipline.
+Wave B shipped 2026-05-22 as bundled v2.20.0 (templates + validator + speculative-dispatch spec). The super-queen's hardest job (auto-decomposing "build feature X" into a shard graph) becomes a script-assisted prompt-template, not pure operator-discipline.
 
 | Version | Deliverable | Effort | Depends on |
 |---|---|---|---|
@@ -55,9 +55,9 @@ The super-queen's hardest job (auto-decomposing "build feature X" into a shard g
 
 **Parallelizable:** v2.20.1 ‖ v2.20.2 after v2.20.0 lands.
 
-## Phase Group 4 — Cross-queen coordination (v2.21.x)
+## Phase Group 4 — Cross-queen coordination (v2.21.x) — 🔄 IN PROGRESS (Wave C dispatched)
 
-Once multiple queens fire in parallel, they need shared infrastructure to avoid duplicating reads and to serialize at shared files.
+Wave C tracks 1+2 running as Kimi background; v2.21.2 spec authored inline. Once multiple queens fire in parallel, they need shared infrastructure to avoid duplicating reads and to serialize at shared files.
 
 | Version | Deliverable | Effort | Depends on |
 |---|---|---|---|
