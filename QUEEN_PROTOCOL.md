@@ -3789,6 +3789,41 @@ Single-stream report. Operator reads one block per feature, not N queen logs int
 
 **Honest caveat:** the 10 levers are theoretical until measured. Lever 3's "quality compounds with N" claim is grounded in the existing race-mode evidence (v2.10.x). Lever 7's "40-60% cache hit rate" is a guess. Calibrate after n≥3 super-queen colonies deliver wall-clock + cost data.
 
+## 31. Multi-phase roadmap (v2.19.x → v3.x)
+
+**Context (v2.19.1):** the v2.19.0 §30 spec defined the super-queen role but only the routing CONTRACT, not the AUTOMATION. The remaining levers (parallel verification gates, cap-aware autopilot, auto-decomposition, cross-queen cache, integration verification, unified meshboard, multi-host fencing, retrospective-driven tuning) require sequenced implementation across ~24 versions.
+
+The full plan lives in [`ROADMAP.md`](./ROADMAP.md) at repo root. This section is the protocol-side anchor; the doc is the living plan.
+
+**Phase groups (summary):**
+
+| Group | Versions | Theme | Status |
+|---|---|---|---|
+| 1 | v2.18.0, v2.19.0 | Foundation: matrix v2 + super-queen role spec | ✓ shipped |
+| 2 | v2.19.1, v2.19.2, v2.19.3 | Speed implementation: docs + parallel gates + cap-aware autopilot | In progress (Wave A live) |
+| 3 | v2.20.0–v2.20.2 | Decomposition automation: prompt templates + validator + speculative dispatch | Drafted in roadmap |
+| 4 | v2.21.0–v2.21.2 | Cross-queen coordination: shared cache + serialization + progress aggregation | Drafted in roadmap |
+| 5 | v2.22.0–v2.22.2 | Colony-level verification: integration gate + reuse + Stop-hook parallel | Drafted in roadmap |
+| 6 | v2.23.0–v2.23.2 | Operational UX: meshboard view + cost dashboard + failure-replay | Drafted in roadmap |
+| 7 | v3.0.0–v3.0.2 | Multi-host fencing — graduates v2.x → v3.x | Hard-dep sequential, no parallel ship |
+| 8 | v3.1.0–v3.1.2 | Quality from learning: retrospective-driven matrix tuning | Requires n≥10 production colonies |
+
+**Critical path:** v2.19.1 → v2.19.2 → v2.20.0 → v2.20.1 → v2.21.0 → v2.22.0 → v2.23.0 → v3.0.0 → v3.1.0. ~34 sessions if shipped sequentially; ~18 sessions if Waves A–E ship via 3-queen super-queen parallelism.
+
+**Wave A activation pattern (v2.19.1 dogfood):** docs track (Claude in-turn) + 2 Kimi background drafters (v2.19.2 + v2.19.3) running in isolated worktrees from same HEAD. Three file-disjoint tracks; zero merge-conflict risk. The protocol's own roadmap is the first super-queen colony.
+
+**Re-evaluation triggers (when to revise the roadmap):**
+
+1. **Real production colony delivers contrary evidence** — e.g. cross-queen cache hit rate measures 15% instead of 40-60%, lever 7's value drops, deprioritize v2.21.0.
+2. **A new external sidecar appears** — Antigravity-style "is this even a sidecar" probes may force new lane categories (see §29.19 framing).
+3. **Operator's vision evolves** — the roadmap is a means, not an end. If the super-queen vision shifts (e.g. user wants Slack-as-orchestrator instead of CLI), Phase 6+ pivots.
+
+**Anti-fix for the roadmap (key one — others in `ROADMAP.md`):** the roadmap is NOT a binding contract. It's a plan. Real evidence re-prioritizes ruthlessly. A version that gets demoted on n=3 real-use evidence is more valuable than the same version shipped to spec.
+
+---
+
+**The queen who follows this protocol ships verified work fast.**
+
 ---
 
 **The queen who follows this protocol ships verified work fast.**

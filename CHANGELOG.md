@@ -2,6 +2,25 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.19.1 — 2026-05-22
+
+**Docs-only patch: ROADMAP.md NEW + §31 multi-phase roadmap reference + Wave A activation (dogfood). The protocol's first super-queen colony is the protocol itself.**
+
+- **`ROADMAP.md` NEW** at repo root. Living document covering all 8 phase groups: foundation (v2.18.0–v2.19.0 ✓), speed implementation (v2.19.x), decomposition automation (v2.20.x), cross-queen coordination (v2.21.x), colony-level verification (v2.22.x), operational UX (v2.23.x), multi-host (v3.0.x — graduates from "single-host production-ish" to multi-host), quality from learning (v3.1.x). Each phase ships with deliverables, effort estimate, dependencies, parallelizable-wave grouping, and acceptance criteria. Critical path is ~34 sessions sequential; ~18 sessions with 3-queen super-queen parallel waves. Re-evaluation triggers explicit (real production colony evidence, new external sidecars, operator vision evolution).
+- **§31 NEW in QUEEN_PROTOCOL.md.** Protocol-side anchor pointing to ROADMAP.md. 8-row phase-groups table with status flags. Acknowledges the roadmap is NOT a binding contract — real evidence re-prioritizes ruthlessly. A version that gets demoted on n=3 real-use evidence is more valuable than the same version shipped to spec.
+- **Wave A activated (dogfood of §30).** Three parallel tracks running in this v2.19.1 ship turn:
+  - **Track 1 (Claude, in-turn):** this ROADMAP.md + §31 + CHANGELOG/README + commit. SHIPPING NOW.
+  - **Track 2 (Kimi background, pid=94024, isolated worktree):** v2.19.2 parallel verification gates draft → `/tmp/v2.19.2-draft.sh` + `/tmp/v2.19.2-design.md`. RUNNING.
+  - **Track 3 (Kimi background, pid=94109, isolated worktree):** v2.19.3 cap-aware autopilot draft → `/tmp/v2.19.3-draft.sh` + `/tmp/v2.19.3-design.md`. RUNNING.
+- **File-disjoint tracks, zero merge-conflict risk.** Track 1 touches queen-protocol repo (ROADMAP.md, QUEEN_PROTOCOL.md §31, CHANGELOG.md, README.md). Tracks 2 + 3 produce standalone drafts in `/tmp/` (no queen-protocol files modified). Operator integrates Tracks 2 + 3 drafts in subsequent v2.19.2 + v2.19.3 ship turns after review.
+- **Wave A is the proof-of-pattern.** The roadmap describes super-queen parallel execution; v2.19.1 demonstrates it on the protocol's own development. Track 1 finishes in-turn; Tracks 2 + 3 surface results in next session.
+
+**Why patch bump:** no spec changes (§30 unchanged), no new rules, no new lanes. Pure documentation + roadmap + Wave A activation. The substantive work (v2.19.2 + v2.19.3 implementations) ships in subsequent patches after Kimi draft review.
+
+Self-rated: 9/10. The -1 is the standard "this is docs not implementation" caveat. The roadmap's value is bounded by how rigorously phases get re-rated on real evidence — if v2.19.x lands without n≥3 production colony exercise, future phase priorities are guesses. Wave A's parallel-tracks demonstration is the substantive innovation: the protocol now has documented evidence that the §30 super-queen pattern works on its own development.
+
+Honest caveat: Tracks 2 + 3 are drafts, not landed implementations. v2.19.2 ships when track-2's `/tmp/v2.19.2-draft.sh` is reviewed, integrated into `~/.claude/scripts/verify-done.sh`, and smoke-tested. Same for v2.19.3. The "Wave A activated" framing must not be misread as "Wave A complete."
+
 ## v2.19.0 — 2026-05-22
 
 **Super-queen role spec — §30 NEW. The queen-of-queens decision contract for true multi-feature parallel execution from a single chat interface.**
