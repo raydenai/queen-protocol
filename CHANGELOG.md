@@ -2,6 +2,44 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.19.0 — 2026-05-22
+
+**Super-queen role spec — §30 NEW. The queen-of-queens decision contract for true multi-feature parallel execution from a single chat interface.**
+
+- **§30 NEW (8 subsections, ~200 lines).** Operator articulated the orchestrator vision: "I want to chat with one Claude Code instance, ask it to build all different features of the app, and have it organize all work, opening new queens, parallel execution." §30 formalizes that vision as the **super-queen role** — a meta-orchestrator that decomposes feature requests into shard graphs, spawns N child queens in parallel, and aggregates results to a single chat stream. The role NEVER writes code — pure dispatch + aggregate. Regular queen role (§1, §2) handles single-shard work.
+- **§30.1 Role definition.** Hard separation: super-queen orchestrates, child queens implement. The role applies when feature-grain requests decompose into 2+ file-disjoint shard groups. Does NOT apply to single-shard work, short bug fixes, or investigation-only tasks (use existing dispatch matrix).
+- **§30.2 Input contract.** Three input types named: feature list, feature-with-constraints, vague directive (refuse-to-expand on the latter per §26.4 anti-pattern). Decomposition output: shard graph with §4 structure (id, tags, kind, priority, complexity, files_allowed, depends_on).
+- **§30.3 Decomposition heuristics.** 5-row matrix mapping signals to decomposition rules. Anti-decomposition rule (HARD): if two proposed shard groups have overlapping `files_allowed`, MERGE them into one shard group with sub-shards. Cross-queen file conflicts are the most common multi-queen failure mode (named in §29.19 for Antigravity; generalized to all multi-queen patterns here).
+- **§30.4 Routing-intelligence contract — the 10 levers** as the super-queen's per-shard decision tree: tier matching, cost-asymmetric lane routing (60% free / 30% mid / 10% premium target), quality-from-parallelism, verification reuse, parallel verification gates, speculative dispatch at PLAN, cross-queen shared read cache, cap-aware autopilot, work batching, colony-level integration verification. Some levers ship in spec form for v2.19.0; implementation deferred to v2.19.x and v2.20+ (annotated per-lever).
+- **§30.5 Cross-queen coordination.** Three axes: (1) dispatch-lock arbitration (super-queen is broker, not lock-holder); (2) shared-file serialization (pre-dispatch file-overlap analysis using `files_allowed`); (3) progress aggregation via shared meshboard (extends §29.8 colony-watcher; full implementation v2.20+).
+- **§30.6 Output contract.** Unified report structure with per-queen status block + colony-level integration verification + landing info. Single stream, not N queen logs interleaved.
+- **§30.7 Six anti-fixes named** — the traps the next operator will hit: don't super-queen single-shard work; don't let super-queen WRITE code; don't decompose into overlapping shard groups; don't skip integration verification "because each queen passed its tests"; don't promote super-queen as default for ALL work (§26.4 anti-pattern); don't forward user messages verbatim to child queens (decompose first, dispatch shard-scoped second).
+- **§30.8 Honest scope statement.** What ships in v2.19.0 (the spec itself + operational pattern for manual adoption today). What's deferred to v2.19.x (parallel verification gates implementation, cap-aware autopilot). What's deferred to v2.20+ (auto-decomposition, speculative dispatch, cross-queen cache, integration verification gate, unified meshboard view). The spec IS the substantive contribution — without the decision contract written down, every super-queen attempt re-derives the routing heuristics ad-hoc.
+
+**Why minor bump (not patch):** new top-level §30 introduces a new ROLE (super-queen / queen-of-queens) that didn't exist in prior protocol vocabulary. Sister to §1 (Hierarchy) which defines the regular queen role. The protocol's noun-set grows.
+
+**Why this is "max speed AND max quality AND resource-wise" (the operator's challenge):**
+- Speed: parallel execution by default across features (lever 1 + 3 + 9)
+- Quality: parallel race winners + verification reuse + colony-level integration (lever 3 + 4 + 10)
+- Resource: cost-asymmetric routing keeps paid caps for hard work + cap-aware autopilot avoids serialization (lever 2 + 8)
+
+All three on the same axis when the matrix tier is matched correctly. Not a tradeoff.
+
+**What's deferred to v2.19.x:**
+- Parallel verification gates implementation (lever 5): `~/.claude/scripts/verify-done.sh` refactored to run ruff/tsc/Kimi-review/Codex-review concurrently. ~3-5× gate-clear speedup expected.
+- Cap-aware autopilot implementation (lever 8): route-decision helper reads daily-cap files + current usage, swaps lanes when cap approached without human-in-loop.
+
+**What's deferred to v2.20+:**
+- Auto-decomposition of "build feature X" → shard graph automatically (prompt-templating).
+- Speculative dispatch at PLAN (lever 6): state-machine extension.
+- Cross-queen shared read cache (lever 7).
+- Colony-level integration verification gate (lever 10).
+- Unified meshboard view for super-queen progress aggregation.
+
+Self-rated: 8/10. The spec is substantive and addresses the operator's articulated vision. The -2 is honest: (a) 10 levers are theoretical until n≥3 super-queen colonies deliver wall-clock + cost measurements; lever 7's "40-60% cache hit rate" is a guess. (b) the spec describes coordination as "operator-discipline-driven" for now — same caveat as §29.19. Real value will be re-rated after the v2.19.x parallel verification gates and cap-aware autopilot ship and exercise the routing-intelligence contract in production colonies.
+
+Honest caveat: the super-queen role as documented is adopt-today-with-discipline, not automated yet. An operator following §30 manually can run one Claude Code session as orchestrator and spawn child sessions (terminal panes, Antigravity workspaces per §29.19) for child queens. The decomposition + dispatch + aggregation steps happen in the operator's head + Claude's reasoning — not in a script. v2.19.x and v2.20+ progressively automate the spec.
+
 ## v2.18.0 — 2026-05-22
 
 **Speed-first defaults shipped + Antigravity IDE characterized as the OPERATOR-DRIVEN PARALLEL-QUEEN lane. Two changes bundled because they belong together: (a) parallel-by-default policy lowers race threshold 5→3 files and review threshold to 1+ files, and (b) new §29.19 documents Antigravity as a new lane CATEGORY (parallel-queen, operator-driven) — not a headless sidecar.**

@@ -3662,6 +3662,137 @@ If the Claude Code queen holds the shard A lock and the Antigravity queen also w
 4. **Do not assume the Antigravity queen reads the protocol.** If the operator launches Antigravity's agent mode on a shard, the agent inside the IDE may not have CLAUDE.md/QUEEN_PROTOCOL.md context wired the same way. Operator-discipline rule: when launching Antigravity for a parallel-queen role, drop the relevant `colony.json` + `QUEEN_PROTOCOL.md` reference into the IDE workspace explicitly. *Special case:* the bundled `anthropic.claude-code` extension running in Antigravity's terminal IS protocol-aware — same `~/.claude/` config applies. The non-protocol-aware surface is `antigravity chat --mode agent` (jetskiAgent), NOT terminal-hosted Claude Code.
 5. **Do not script `dispatch-lock-from-path.sh` around Antigravity launches.** The lock requires a PID holder; an Antigravity-hosted queen runs inside an Electron process the Claude Code queen has no PID handle on. Wrapping `antigravity <workspace>` in `acquire-lock` would either (a) lock the launcher's PID, which exits immediately leaving an orphan lock, or (b) require the operator to manually release. The mistake a scripter will try first; named here so they don't. Cross-queen lock-respect remains operator discipline (see "Mandatory dispatch-lock semantics across queens" paragraph above) — not script-enforceable until the v2.17.x harness-verification work lands.
 
+## 30. The super-queen role specification (v2.19.0)
+
+**Context (2026-05-22):** operator articulated the orchestrator vision: "using a terminal or Claude Code instance as the only thing I chat with — I ask it to build all different features of the app, and it is organizing all work, opening new queens, parallel execution. I am only talking with it as my assistant orchestrator." This §30 formalizes that vision as the **super-queen role** — a queen-of-queens that decomposes feature requests into shard graphs, spawns N child queens in parallel, and aggregates results back to a single chat stream.
+
+The protocol's existing primitives already support the substrate (per-shard dispatch lock, colony-watcher, mesh signaling, 8-way sidecar surface). What §30 adds is the **routing-intelligence contract** that turns a single Claude Code chat into a true meta-orchestrator.
+
+### 30.1 Role definition
+
+A **super-queen** is a Claude Code session running in the user's single chat interface whose job is NOT to write code directly but to:
+
+1. Receive feature-grain user requests ("build the auth flow + dashboard + billing").
+2. Decompose into a shard graph (independent shard groups + dependency edges).
+3. Route each shard to its optimal tier (solo / parallel-review / parallel-race) and lane.
+4. Spawn N child queens in parallel — one per file-disjoint shard group.
+5. Aggregate child-queen results into a unified report stream.
+6. Run colony-level integration verification (single pass across merged result).
+
+A **regular queen** (§1, §2) writes code, manages its own ants, runs its own gates. A super-queen NEVER writes code — it dispatches and aggregates.
+
+**When the super-queen role applies:** feature-grain requests that decompose into 2+ file-disjoint shard groups. **When it does NOT apply:** single-shard work (use the regular queen role from §2); short bug fixes (the existing dispatch matrix already handles); investigation-only work.
+
+### 30.2 Input contract: feature request → shard graph
+
+Super-queen receives one of:
+
+- **Feature list:** "build auth flow + dashboard + billing" — must decompose into per-feature shard groups.
+- **Feature-with-constraints:** "build dashboard, must integrate with existing auth, ship by Thursday" — decompose with edge constraints + deadline awareness.
+- **Vague directive:** "make the app production-ready" — refuse to expand without operator-approved scope (§26.4 anti-pattern: rules that exist to be exercised).
+
+Decomposition output: a shard graph with the §4 structure (id, tags, kind, priority, complexity, files_allowed, depends_on) — one shard group per file-disjoint feature, OR sub-shards within a group when intra-feature shards exist.
+
+### 30.3 Decomposition heuristics
+
+| Signal | Decomposition |
+|---|---|
+| Features touch disjoint file trees (e.g. `apps/auth/` vs `apps/billing/`) | Separate shard groups, parallel queens |
+| Features share files (`package.json`, `src/types.ts`, `src/api/index.ts`) | Same queen, sub-shards, serialized at shared files |
+| Feature requires API contract from another feature | Serialize on dependency edge; parallel everything downstream |
+| Feature is a refactor spanning entire codebase | NO multi-queen (refactor wins are read-coherence-bounded) — single queen with §29.18 race |
+| Feature touches schema migration | Single queen owns migration; downstream queens read-only until merged |
+
+**Anti-decomposition rule (HARD):** if two proposed shard groups have overlapping `files_allowed` sets, MERGE them into one shard group with sub-shards. Cross-queen file conflicts are the most common multi-queen failure mode (§29.19 documents this for Antigravity; same rule applies to all multi-queen patterns).
+
+### 30.4 Routing-intelligence contract — the 10 levers
+
+The super-queen's per-shard decision tree:
+
+| Lever | Decision | Why |
+|---|---|---|
+| **1. Tier matching** | Match shard complexity to dispatch tier (solo / review / race). v2.18.0 thresholds: <30 LOC + 1 file = solo; 1 file >30 LOC OR 2 files = review; 3+ files = race. | Right-size dispatch. Trivial work doesn't need sidecars; non-trivial work does. |
+| **2. Cost-asymmetric lane routing** | Free/cheap lanes first: Gemma 4 ($0) for classify, Gemini Flash (free 180/day) for second-opinion reads, Kimi for bulk mechanical, Codex for hard reasoning, Claude for final synthesis. Target mix: 60% free / 30% mid / 10% premium. | Resource discipline. Paid caps are scarce; preserve for what only they can do. |
+| **3. Quality-from-parallelism** | 3+ file changes get parallel race (N attempts, best wins). Quality compounds with N, not flat. | Both speed AND quality on the same axis. |
+| **4. Verification reuse** | If reviewer-A passed diff X, and shard-B diff is a strict subset of X, skip shard-B's review. | Same quality, less cost, less wall-clock. |
+| **5. Parallel verification gates** | verify-done.sh sub-tiers (ruff + tsc + Kimi-review + Codex-review) run concurrently, not sequentially. | ~3-5× faster gate clear, same quality. Deferred to v2.19.1 implementation. |
+| **6. Speculative dispatch at PLAN** | High-confidence sub-shards dispatch in parallel WHILE plan finalizes. Discarded speculation cost ≪ orchestration overhead saved. | 30-50% wall-clock reduction on multi-shard colonies. Deferred to v2.20+ implementation. |
+| **7. Cross-queen shared read cache** | Queen-A reads `src/auth/middleware.py`, super-queen caches; Queen-B's read served from cache. 40-60% hit rate expected. | Eliminates redundant context derivation. Deferred to v2.20+ implementation. |
+| **8. Cap-aware autopilot** | Codex daily cap approaching → super-queen auto-routes downstream Codex work to Gemini Flash (free OAuth) without human-in-loop. | Avoids serialization on cap exhaustion. Deferred to v2.19.1 implementation. |
+| **9. Work batching across queens** | 3 features touching related code → 1 queen with 3 sub-shards (sub-shard speed, no cross-queen merge risk) instead of 3 queens. | Eliminates cross-queen file conflicts; preserves serialization on shared files. |
+| **10. Colony-level integration verification** | N queens run their shard-level tests; super-queen runs ONE integration test pass on the merged result. | Cost N→1; quality preserved (integration coverage was N redundant runs). Deferred to v2.20+ implementation. |
+
+### 30.5 Cross-queen coordination
+
+When the super-queen spawns N child queens, coordination spans three axes:
+
+1. **Dispatch-lock arbitration.** Each child queen holds its own per-shard lock via `dispatch-lock-from-path.sh`. The super-queen does NOT hold a lock — it's the broker. If Queen-A and Queen-B race for the same shard, the lock decides; super-queen logs which won and routes the loser elsewhere.
+
+2. **Shared-file serialization.** When two queens both need to touch a shared file (e.g. `package.json` for two features adding deps), the super-queen serializes the writes: Queen-A merges first, super-queen rebases Queen-B's worktree, Queen-B re-runs its tests. Detected via pre-dispatch file-overlap analysis using each queen's `files_allowed` declaration.
+
+3. **Progress aggregation.** Each child queen emits status events to a shared meshboard (§29.8 colony-watcher extended for this in v2.20+). Super-queen consumes the stream and emits a unified `[Queen-A: shard 2/5] [Queen-B: converging] [Queen-C: blocked on Queen-A's API contract]` view back to the user. Deferred to v2.20+ implementation.
+
+### 30.6 Output contract: unified report
+
+Super-queen emits one report per feature, structured:
+
+```
+FEATURE: <user-stated name>
+STATUS: shipped | partial | blocked
+
+  QUEEN-A (auth flow)        [4 shards / 4 shipped / 0 blocked]
+    shard-1: ../auth/middleware.py   CLEAN  (tier=race, winner=kimi-isolated)
+    shard-2: ../auth/routes.py       CLEAN  (tier=review, reviewer=codex)
+    shard-3: ../auth/tests/          CLEAN  (tier=solo)
+    shard-4: ../auth/__init__.py     CLEAN  (tier=solo, exports updated)
+
+  QUEEN-B (dashboard)        [3 shards / 3 shipped / 0 blocked]
+    ...
+
+INTEGRATION VERIFICATION  CLEAN
+  - colony-level pytest:    pass (47 tests, 0.8s)
+  - cross-feature smoke:    pass (auth→dashboard handoff verified)
+  - dispatch-lock audit:    no orphan locks
+
+LANDED: <commit-sha> on <branch>
+```
+
+Single-stream report. Operator reads one block per feature, not N queen logs interleaved.
+
+### 30.7 Anti-fixes (the traps the next operator will hit)
+
+1. **Do not super-queen single-shard work.** The role exists for feature-grain decomposition. Routing a 2-file bug fix through super-queen → "decompose" → 1 queen → 2 shards adds orchestration overhead that exceeds the work. Use regular queen role (§2) directly.
+2. **Do not let the super-queen WRITE code.** The role is dispatch + aggregate. The moment the super-queen edits a file, it's competing with its own child queens for the lock. Hard separation: super-queen orchestrates, child queens implement.
+3. **Do not decompose into overlapping shard groups.** Two queens both editing `package.json` is guaranteed conflict. Per §30.3 anti-decomposition rule: merge into one queen with sub-shards.
+4. **Do not skip integration verification because "each queen passed its tests."** Shard-level tests don't catch cross-feature regressions. Colony-level integration pass is mandatory at converge. Single 1× cost.
+5. **Do not promote super-queen as the default for ALL work.** Most queen-protocol work is single-feature, single-queen. Super-queen role is for 2+ file-disjoint features in one session. Promoting it to default would impose decomposition overhead on simple work — the §26.4 anti-pattern (rules that exist to be exercised).
+6. **Do not let the super-queen forward user messages to child queens verbatim.** Each child queen needs a scoped prompt with just its shard's context. Forwarding "build the auth flow + dashboard + billing" to all three queens means each one tries to do all three. Decompose first, dispatch shard-scoped second.
+
+### 30.8 What this version (v2.19.0) ships vs. defers
+
+**Shipped in v2.19.0:**
+- §30 role specification (this section): the decision contract, decomposition heuristics, routing-intelligence levers, cross-queen coordination model, output contract, anti-fixes.
+- Operational pattern: an operator can manually adopt the super-queen role today by treating one Claude Code session as the orchestrator and spawning child sessions (terminal panes, Antigravity workspaces per §29.19) for child queens. The harness discipline is documented; the cross-queen coordination is operator-discipline-driven for now.
+
+**Deferred to v2.19.x:**
+- **Parallel verification gates implementation** (lever 5): verify-done.sh refactored to run ruff/tsc/Kimi-review/Codex-review concurrently. ~3-5× gate-clear speedup.
+- **Cap-aware autopilot implementation** (lever 8): route-decision helper that reads `~/.codex/.daily-cap` + current usage, swaps lanes when cap is approached.
+
+**Deferred to v2.20+:**
+- **Auto-decomposition** of "build feature X" → shard graph automatically (currently the super-queen does it via planning; v2.20 formalizes the prompt-templating).
+- **Speculative dispatch at PLAN** (lever 6): state-machine extension to fire high-confidence sub-shards before plan finalizes.
+- **Cross-queen shared read cache** (lever 7): super-queen-managed read cache invalidated on writes.
+- **Colony-level integration verification** (lever 10): new gate that runs after all child queens converge.
+- **Unified meshboard view** for super-queen progress aggregation (lever 9 + §30.5 axis 3).
+
+**Why v2.19.0 ships the spec without all the implementation:** the spec IS the substantive contribution. Without the decision contract written down, every super-queen attempt re-derives the routing heuristics ad-hoc, gets them wrong differently each time, and the operator can't compare runs. With the spec, the operator can adopt the role manually today, surface gaps as real colonies exercise it, and prioritize the v2.19.x/v2.20+ implementation work against actual evidence.
+
+**Honest caveat:** the 10 levers are theoretical until measured. Lever 3's "quality compounds with N" claim is grounded in the existing race-mode evidence (v2.10.x). Lever 7's "40-60% cache hit rate" is a guess. Calibrate after n≥3 super-queen colonies deliver wall-clock + cost data.
+
+---
+
+**The queen who follows this protocol ships verified work fast.**
+
 **Health surface (`sidecar-health.sh:75-89`):** `ping_antigravity()` verifies `~/.antigravity/antigravity/bin/antigravity --version` responds within `TIMEOUT_SECS=10`. Report grows to **8-way surface** (Claude+Kimi+Codex+Gemini+Grok-intel+Jules-async+Grok-Build-coding+Antigravity-parallel-queen). Health JSON gains `antigravity: { healthy, checked_at }`. Exit code 0 still requires only Kimi+Codex healthy — Antigravity is additive, **and** structurally non-blocking (its absence just means no parallel-queen lane is available; the headless coding pool is unaffected).
 
 **Smoke-tested live (2026-05-22 13:21 UTC):** `sidecar-health.sh check` correctly reports Antigravity HEALTHY when binary is present + `--version` responds. Confirmed binary present at `~/.antigravity/antigravity/bin/antigravity` symlinked to `/Applications/Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide`.
