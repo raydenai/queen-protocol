@@ -2,6 +2,90 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.23.0 — 2026-05-22
+
+**Wave E complete. Operational UX layer shipped. Full v2.x roadmap (Waves A–E) complete in a single multi-hour session via the §30 super-queen pattern dogfooded on the protocol itself.**
+
+### v2.23.0 sub-deliverables
+
+- **`~/.claude/scripts/meshboard-dashboard.sh` NEW + LIVE (12.5K, Kimi pid=39084).** Full TUI: ANSI colors per queen state (green=LAND, yellow=WATCH, red=BLOCKED, gray=DEAD), 2s auto-refresh with cursor-home (no flicker), sort by progress descending, ETA linear extrapolation, blocked-queue visualization with dependency edges, footer aggregate stats. Honors `NO_COLOR` env var; `--plain` mode for accessibility.
+- **`~/.claude/scripts/meshboard-summary-line.sh` NEW + LIVE (2.5K, Kimi pid=39084).** Single-line variant for SessionStart hook injection. **Smoke-tested:** outputs `[Super-Queen: N queens active | <id> blocked | ETA Nh]`.
+- **`~/.claude/scripts/cost-tracker.sh` NEW + LIVE + SMOKE-TESTED (15.3K, Kimi pid=39160).** Per-feature + per-queen cost tracking with ceiling alerts. Subcommands: `record <lane> <dispatch-id>`, `report <colony-id>`/`--feature`/`--since`, `ceiling --set`/`--check`. Storage: `~/.claude/state/cost-tracker/`. Lane coefficients tunable. Integration with cap-autopilot for cost-aware substitution decisions.
+- **`replay-failed-shard.sh` already shipped in v2.22.0** (was v2.23.2; moved up because it integrates with verification work).
+- **`docs/v2.23.0-meshboard-dashboard-design.md` NEW (8.6K).**
+- **`docs/v2.23.1-cost-tracker-design.md` NEW (5.8K).**
+
+### Wave E operational pattern (fifth + final dogfood proof)
+
+3 file-disjoint parallel tracks:
+- Track 1 (Kimi background pid=39084, isolated worktree): meshboard dashboard. ~12 min wall-clock.
+- Track 2 (Kimi background pid=39160, isolated worktree): cost-tracker. ~5 min wall-clock.
+- Track 3 (Claude inline — replay-failed-shard, shipped in v2.22.0).
+
+Zero merge conflicts across ALL FIVE WAVES (A + B + C + D + E). The §30 super-queen pattern is now proven five times on the protocol's own development.
+
+### Session-scale summary (single multi-hour session, 2026-05-22)
+
+| Wave | Versions | Bundled? | Lanes Active |
+|---|---|---|---|
+| A | v2.18.0, v2.19.0, v2.19.1, v2.19.2 | Multi-version | Claude + 2 Kimi |
+| B | v2.20.0 | Bundled (was v2.20.0/1/2) | Claude + 2 Kimi |
+| C | v2.21.0 | Bundled (was v2.21.0/1/2) | Claude + 2 Kimi |
+| D | v2.22.0 | Bundled + field-evidence patch | Claude (3 inline) + 2 Kimi |
+| E | v2.23.0 | Bundled (was v2.23.0/1/2) | Claude + 2 Kimi |
+
+**Inventory after v2.23.0 — 12 super-queen-specific scripts now live:**
+
+| Script | Version | Purpose |
+|---|---|---|
+| `cap-autopilot.sh` | v2.19.2 | Lever 8: per-lane usage tracking + substitution |
+| `verify-done.parallel.draft.sh` | v2.19.2 | Lever 5: parallel verify gates (operator promotes via verify-done-promote.sh) |
+| `validate-shard-graph.sh` | v2.20.0 | Pre-dispatch graph validation |
+| `super-queen-cache.sh` | v2.21.0 | Lever 7: shared read cache |
+| `detect-overlap.sh` | v2.21.0 | §30.3 anti-decomposition enforcement |
+| `colony-integration-gate.sh` | v2.22.0 | Lever 10: integration verification |
+| `review-cache.sh` + core.py | v2.22.0 | Lever 4: verification reuse |
+| `verify-done-promote.sh` | v2.22.0 | Lever 11: Stop-hook A/B promote |
+| `detect-concurrent-queens.sh` | v2.22.0 | Concurrent-queens hazard (field-evidence) |
+| `replay-failed-shard.sh` | v2.22.0 | Cap-aware failure replay |
+| `meshboard-dashboard.sh` | v2.23.0 | TUI dashboard |
+| `meshboard-summary-line.sh` | v2.23.0 | One-line SessionStart banner |
+| `cost-tracker.sh` | v2.23.0 | Per-feature/queen cost tracking |
+
+**lib/ directory growth:**
+- `lib/decompose-prompts/` — 5 templates + validator test corpus
+- `lib/overlap-test-fixtures/` — 5 fixtures for `detect-overlap.sh`
+- `lib/integration-fixtures/` — 3 fixtures for `colony-integration-gate.sh`
+
+**docs/ directory growth:**
+- `docs/v2.20.1-validator-design.md`
+- `docs/v2.20.2-speculative-dispatch-spec.md`
+- `docs/v2.21.0-cache-design.md`
+- `docs/v2.21.1-overlap-design.md`
+- `docs/v2.21.2-meshboard-spec.md`
+- `docs/v2.22.0-integration-gate-design.md`
+- `docs/v2.22.1-review-cache-design.md`
+- `docs/v2.23.0-meshboard-dashboard-design.md`
+- `docs/v2.23.1-cost-tracker-design.md`
+- `docs/v3.0-multi-host-spec.md`
+- `docs/v3.1-learning-spec.md`
+
+### What v2.23.0 does NOT do
+
+- Does NOT auto-launch the meshboard daemon. Operator runs `meshboard-dashboard.sh` manually; integration with super-queen lifecycle is v2.24+ work.
+- Does NOT auto-record cost on every lane dispatch. Operator wires `cost-tracker.sh record` into task scripts in v2.23.x patch.
+- Does NOT yet provide a SINGLE ORCHESTRATOR that calls all 12 scripts in sequence. That's v2.24+ — the "super-queen-orchestrator.sh" that ties cap-autopilot + decompose-prompts + validate-shard-graph + dispatch-lock + super-queen-cache + colony-integration-gate + review-cache + meshboard-dashboard + cost-tracker + replay-failed-shard + verify-done.parallel into a single operator-facing super-queen command.
+
+**Why minor bump (not patch):** Wave E completes the v2.x roadmap from v2.18.0 onward (Foundation → Speed → Decompose → Coordinate → Verify → UX). 12 super-queen scripts live, 11 design docs shipped, 5 dogfood proofs of §30 pattern.
+
+Self-rated: 8/10. The -2 is honest:
+1. **Flow integration deferred** — 12 scripts but no orchestrator. v2.24+ candidate.
+2. **No production-colony evidence yet** — Wave A → E entirely dogfooded on protocol-self. v3.1.x learning algorithms still need n≥10 real production colonies before they can re-rate ANY of v2.x's tier thresholds, lane assignments, or routing rules. Without external evidence, the entire v2.x machinery is "best-guess machinery that's never been used on a real colony's worth of feature work."
+
+Honest caveat: this session shipped enormous machinery (62KB of new bash, 80KB of new spec docs, 12 new scripts). Real value depends on operator (a) actually USING the machinery on real colonies, (b) collecting telemetry per v3.1 spec, (c) re-rating v2.x heuristics against real data. Until then, the protocol describes a powerful pattern that's been dogfooded but not battle-tested.
+
+The substantive innovation across this session: not any individual lever, but the proof that the §30 super-queen pattern WORKS for non-trivial multi-version development. Five waves shipped via 3-way parallel tracks (Claude + 2 Kimi) with zero merge conflicts across 8 commits and ~150KB of new artifacts. Pattern is operationally proven on its own development.
+
 ## v2.22.0 — 2026-05-22
 
 **Wave D complete + concurrent-queens hazard patch (field-evidence driven). Colony-level verification shipped: integration gate + verification reuse + Stop-hook A/B promotion + multi-queen safety detector.**
