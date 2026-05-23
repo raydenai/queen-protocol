@@ -1,0 +1,66 @@
+{
+  "fixture_id": "colony-b-barrel-collision",
+  "description": "Two shards export same name from different barrels; dependent component silently uses wrong implementation.",
+  "protocol_version": "2.22.0",
+  "shards": [
+    {
+      "id": "s01-i18n-barrel",
+      "files_allowed": ["lib/i18n/*"],
+      "diff": {
+        "modified": [
+          "lib/i18n/index.ts"
+        ],
+        "content": "export { formatCurrency } from './formatters';  // signature: (amount: number, locale: string) => string"
+      },
+      "shard_tests_pass": true,
+      "shard_test_files": ["lib/i18n/formatters.test.ts"]
+    },
+    {
+      "id": "s02-currency-barrel",
+      "files_allowed": ["lib/currency/*"],
+      "diff": {
+        "modified": [
+          "lib/currency/index.ts"
+        ],
+        "content": "export { formatCurrency } from './core';  // signature: (amount: number, locale: LocaleEnum) => string"
+      },
+      "shard_tests_pass": true,
+      "shard_test_files": ["lib/currency/core.test.ts"]
+    },
+    {
+      "id": "s03-price-display",
+      "files_allowed": ["components/PriceDisplay.tsx"],
+      "diff": {
+        "modified": [
+          "components/PriceDisplay.tsx"
+        ],
+        "content": "import { formatCurrency } from 'lib/i18n';\nconst price = formatCurrency(10.00, 'en-US');"
+      },
+      "shard_tests_pass": true,
+      "shard_test_files": ["components/PriceDisplay.test.tsx"]
+    }
+  ],
+  "integration_surface": {
+    "cross_shard_files": [],
+    "migration_files": [],
+    "barrel_files": [
+      "lib/i18n/index.ts",
+      "lib/currency/index.ts"
+    ],
+    "dependent_files": ["components/PriceDisplay.tsx"]
+  },
+  "integration_tests": [
+    {
+      "file": "tests/integration/PriceDisplay.test.tsx",
+      "references": ["PriceDisplay", "formatCurrency"],
+      "expected": "FAIL",
+      "failure_snippet": "Expected: $10.00\nReceived: 10,00 €"
+    }
+  ],
+  "expected_gate_result": "BLOCKED",
+  "expected_fail_points": ["lib/i18n/index.ts"],
+  "expected_stderr_contains": [
+    "[\"FAIL\",\"lib/i18n/index.ts\",\"\"]",
+    "BLOCKED — integration gate failed"
+  ]
+}

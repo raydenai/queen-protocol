@@ -1,0 +1,40 @@
+{
+  "fixture_id": "colony-c-clean",
+  "description": "Disjoint shards with no schema/barrel changes. Empty integration surface; gate warns but passes.",
+  "protocol_version": "2.22.0",
+  "shards": [
+    {
+      "id": "s01-invoice",
+      "files_allowed": ["src/billing/invoice.py"],
+      "diff": {
+        "modified": ["src/billing/invoice.py"],
+        "content": "def generate_invoice(order_id: str) -> Invoice: ..."
+      },
+      "shard_tests_pass": true,
+      "shard_test_files": ["tests/shards/test_invoice.py"]
+    },
+    {
+      "id": "s02-receipt",
+      "files_allowed": ["src/billing/receipt.py"],
+      "diff": {
+        "modified": ["src/billing/receipt.py"],
+        "content": "def generate_receipt(payment_id: str) -> Receipt: ..."
+      },
+      "shard_tests_pass": true,
+      "shard_test_files": ["tests/shards/test_receipt.py"]
+    }
+  ],
+  "integration_surface": {
+    "cross_shard_files": [],
+    "migration_files": [],
+    "barrel_files": [],
+    "dependent_files": []
+  },
+  "integration_tests": [],
+  "expected_gate_result": "GREEN",
+  "expected_fail_points": [],
+  "expected_stderr_contains": [
+    "NO INTEGRATION SURFACE DETECTED",
+    "consider adding cross-shard contract tests"
+  ]
+}

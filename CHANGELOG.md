@@ -2,6 +2,53 @@
 
 All notable changes to the Queen Protocol. Self-ratings are deliberately honest; review-grounded scores cite the reviewer.
 
+## v2.22.0 — 2026-05-22
+
+**Wave D complete + concurrent-queens hazard patch (field-evidence driven). Colony-level verification shipped: integration gate + verification reuse + Stop-hook A/B promotion + multi-queen safety detector.**
+
+### v2.22.0 sub-deliverables
+
+- **`~/.claude/scripts/colony-integration-gate.sh` NEW + LIVE (17.1K, Kimi pid=56599).** Lever 10 from §30.4. Runs ONCE on merged result of all child queens; cost N→1, quality preserved. Identifies "integration surface" (files modified by 2+ shards, cross-shard API contracts, schema migrations + dependents) and scopes integration tests to that surface. Contract: exit 0 = clean / exit 1 = blocks LAND. `--colony-id <id> [--worktree <path>] [--dry-run]`.
+- **`~/.claude/scripts/review-cache.sh` NEW + LIVE + SMOKE-TESTED (3K, Kimi pid=61672) + `review-cache-core.py` (10K).** Lever 4 from §30.4. If reviewer-A passed diff X and shard-B's diff is a strict subset of X (exact hunk match — no fuzzy), skip shard-B's redundant review. Subcommands: `check <diff-file>`, `record <diff-file> <reviewer-id> <verdict>`, `stats`. Storage at `~/.claude/state/super-queen-review-cache/`, 1000-entry LRU, 7-day TTL. **Smoke-tested:** stats banner clean with 0 entries.
+- **`~/.claude/scripts/verify-done-promote.sh` NEW + LIVE + SMOKE-TESTED (Claude-authored inline).** Lever 11 promotion tool. A/B test harness for promoting `verify-done.parallel.draft.sh` (v2.19.2) → live Stop hook. Subcommands: `check` (prerequisites), `ab-test` (compare exit codes + timings on fixture set), `promote` (atomic swap with backup), `rollback` (restore pre-promotion verify-done.sh), `status`. **Smoke-tested:** `status` reports SEQUENTIAL (parallel never promoted yet, as expected).
+- **`~/.claude/scripts/detect-concurrent-queens.sh` NEW + LIVE + SMOKE-TESTED (Claude-authored inline, field-evidence driven).** SessionStart safety check. Detects: (1) peer Claude Code processes running (multi-queen pattern), (2) active Kimi/Codex background dispatches, (3) uncommitted work in current repo. Emits HAZARD warning (exit 2) when concurrent activity + uncommitted work coexist — the exact failure mode the operator hit 2026-05-22 (intermediate WIP commit from one queen wiped uncommitted work from another; recovery via reflog was clean but not guaranteed). Operator now sees explicit warning on SessionStart to commit/stash before proceeding. **Smoke-tested:** correctly reports "OK (peers=0, kimi=0, uncommitted=0)" in single-queen state.
+- **`~/.claude/scripts/replay-failed-shard.sh` NEW + LIVE (Claude-authored inline, v2.23.2 candidate moved up because related to v2.22.x verification work).** Operator-invokable replay tool for DIRTY/REJECTED shards. Subcommands: `<shard-id>` (same-lane replay), `<shard-id> --swap-lane` (consult cap-autopilot for substitute), `<shard-id> --swap-lane <explicit>`, `--list-failed`, `<shard-id> --status` (replay history). 3-replay budget per shard. Integrates with `cap-autopilot.sh recommend`.
+- **`docs/v2.22.0-integration-gate-design.md` NEW (12.3K).** Integration-surface detection algorithm, integration tests vs shard tests distinction, failure modes, reuse pattern (subset → skip with cache from v2.21.0).
+- **`docs/v2.22.1-review-cache-design.md` NEW (12.1K).** Hunk-level hashing for subset detection, exact-match-only rule (no fuzzy), false-positive risk mitigation via file-mtime check, telemetry approach.
+- **`lib/integration-fixtures/` NEW (3 fixtures).** Test corpus for colony-integration-gate.sh: `colony-a-schema-api-drift.json` (intentional cross-shard regression), `colony-b-barrel-collision.json` (export collision), `colony-c-clean.json` (baseline).
+
+### Concurrent-queens hazard — field-evidence driven addition
+
+Operator reported 2026-05-22: "I was manually launching multiple queens and they are spawning queens as well." One queen's intermediate WIP commit wiped uncommitted session work from another concurrent queen. Recovery via reflog was clean but the pattern is a real risk. v2.22.0 ships `detect-concurrent-queens.sh` as the documented mitigation. This is the FIRST instance of field evidence driving a protocol change in real-time during a session — exactly the calibration loop the §31 anti-fix #1 ("real evidence re-prioritizes ruthlessly") was designed for.
+
+### Wave D operational pattern (fourth §30 super-queen dogfood proof)
+
+3 file-disjoint parallel tracks:
+- Track 1 (Claude, in-turn): docs + integration + concurrent-queens detector + v2.22.2 promotion script + v2.23.2 replay tool (Claude-authored inline because concurrent-cap blocked Kimi for tracks 3+)
+- Track 2 (Kimi background pid=56599, isolated worktree): colony-integration-gate. ~8 min.
+- Track 3 (Kimi background pid=61672, isolated worktree): review-cache. ~7 min.
+
+Zero merge conflicts. Wave A + B + C + D all shipped via 3-way parallel. Four for four. Concurrent-cap hit twice (Wave B + Wave D) — both times resolved by Claude authoring the third track inline. Pattern confirmed: when 2-concurrent cap binds, Claude does the lower-complexity third track in-turn while Kimi handles the substantive two.
+
+### Wave E status (in flight — dispatched after Wave D integration)
+
+- Track 1 (Kimi background pid=39084, isolated worktree): v2.23.0 unified meshboard CLI dashboard (TUI with ANSI colors, ETA estimates, blocked-queue visualization). RUNNING.
+- Track 2 (Kimi background pid=39160, isolated worktree): v2.23.1 cost ceiling dashboard (per-feature + per-queen cost tracking + ceiling alerts). RUNNING.
+- Track 3 (Claude inline, ALREADY LIVE): v2.23.2 replay-failed-shard.sh — see above; bundled into v2.22.0 commit because it integrates with cap-autopilot.
+
+### What v2.22.0 does NOT do
+
+- Does NOT auto-invoke `colony-integration-gate.sh` at LAND step. Operator-discipline until v2.22.x wires it.
+- Does NOT promote `verify-done.parallel.draft.sh` automatically. Operator runs `verify-done-promote.sh ab-test` then `promote` manually.
+- Does NOT yet expand `detect-concurrent-queens.sh` to handle multi-level super-queen (queen spawning queens). Current detection is peer-level only. v2.22.x candidate after more field evidence.
+- Does NOT implement diff-prior for replay (operator uses `git diff` manually).
+
+**Why minor bump (not patch):** 5 new executables in `~/.claude/scripts/`, new docs surface, new fixture corpus, AND a field-evidence-driven safety check. The trio of v2.19.2 + v2.20.0 + v2.21.0 + v2.22.0 collectively gives the super-queen the full operational toolkit; v2.23.x ships the operator-facing UX (meshboard dashboard + cost ceiling + failure replay enhancements).
+
+Self-rated: 9/10. The -1: most utilities still operator-discipline-driven (not auto-invoked from super-queen flow). Wave A+B+C+D all shipped via 3-way parallel super-queen dogfood — pattern proven four times. The concurrent-queens hazard detection responding to real operator field evidence in the same session is the substantive innovation moment.
+
+Honest caveat: same dormant-code risk as prior waves. The MACHINERY is now substantial — 10 super-queen-specific scripts (`cap-autopilot.sh`, `super-queen-cache.sh`, `detect-overlap.sh`, `validate-shard-graph.sh`, `colony-integration-gate.sh`, `review-cache.sh`, `verify-done-promote.sh`, `detect-concurrent-queens.sh`, `replay-failed-shard.sh`, plus the parallel `verify-done` draft). FLOW INTEGRATION across these into a single super-queen orchestrator is v2.22.x → v2.23.x → v2.24+. Without flow integration, this is a "useful tools" release, not a "transformed operator experience" release.
+
 ## v2.21.0 — 2026-05-22
 
 **Wave C complete. Cross-queen coordination shipped: shared read cache + shared-file overlap detector + meshboard progress-aggregation spec. v2.21.0 bundles planned v2.21.0/v2.21.1/v2.21.2.**

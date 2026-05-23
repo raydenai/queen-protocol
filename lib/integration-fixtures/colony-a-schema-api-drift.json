@@ -1,0 +1,51 @@
+{
+  "fixture_id": "colony-a-schema-api-drift",
+  "description": "Schema migration adds nullable column; API schema assumes non-nullable. Integration catch.",
+  "protocol_version": "2.22.0",
+  "shards": [
+    {
+      "id": "s01-db-migration",
+      "files_allowed": ["migrations/*.sql"],
+      "diff": {
+        "added": [
+          "migrations/2026_05_20_add_phone_verified.sql"
+        ],
+        "content": "ALTER TABLE users ADD COLUMN phone_verified BOOLEAN DEFAULT NULL;"
+      },
+      "shard_tests_pass": true,
+      "shard_test_files": ["tests/shards/test_migration_s01.py"]
+    },
+    {
+      "id": "s02-api-schema",
+      "files_allowed": ["src/schemas/*.py", "src/api/routes/*.py"],
+      "diff": {
+        "modified": [
+          "src/schemas/user.py"
+        ],
+        "content": "class UserCreate(BaseModel):\n    ...\n    phone_verified: bool = False  // assumes non-nullable"
+      },
+      "shard_tests_pass": true,
+      "shard_test_files": ["tests/shards/test_user_schema_s02.py"]
+    }
+  ],
+  "integration_surface": {
+    "cross_shard_files": [],
+    "migration_files": ["migrations/2026_05_20_add_phone_verified.sql"],
+    "barrel_files": ["src/schemas/user.py"],
+    "dependent_files": ["src/api/routes/users.py"]
+  },
+  "integration_tests": [
+    {
+      "file": "tests/integration/test_user_registration.py",
+      "references": ["user", "phone_verified", "users.py"],
+      "expected": "FAIL",
+      "failure_snippet": "pydantic_core._pydantic_core.ValidationError: Input should be a valid boolean, got null"
+    }
+  ],
+  "expected_gate_result": "BLOCKED",
+  "expected_fail_points": ["src/schemas/user.py"],
+  "expected_stderr_contains": [
+    "[\"FAIL\",\"src/schemas/user.py\",\"\"]",
+    "BLOCKED — integration gate failed"
+  ]
+}
