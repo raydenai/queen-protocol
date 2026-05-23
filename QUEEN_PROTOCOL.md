@@ -3805,7 +3805,8 @@ The full plan lives in [`ROADMAP.md`](./ROADMAP.md) at repo root. This section i
 | 4 | **v2.21.0** (bundled) | Cross-queen coordination: shared cache + serialization + meshboard spec | ✓ Wave C complete |
 | 5 | **v2.22.0** (bundled) | Colony-level verification: integration gate + review reuse + Stop-hook A/B promote + concurrent-queens hazard | ✓ Wave D complete |
 | 6 | **v2.23.0** (bundled) | Operational UX: meshboard dashboard + cost ceiling tracker + failure-replay (shipped v2.22.0) | ✓ Wave E complete |
-| 6+ | **v2.24.0** | Flow integration: `super-queen.sh` orchestrator (16 subcommands wiring all 13 prior scripts) + `telemetry-emit.sh` (v3.1.x evidence collection starts NOW) | ✓ closes v2.23.0 -2 gaps → 10/10 |
+| 6+ | **v2.24.0** | Flow integration: `super-queen.sh` orchestrator (16 subcommands wiring all 13 prior scripts) + `telemetry-emit.sh` (v3.1.x evidence collection starts NOW) | ✓ closes v2.23.0 -2 gaps → 10/10 by named criteria |
+| 6++ | **v2.25.0** | Orchestrator hardening: auto-decompose via Kimi dispatch + multi-lane dispatch routing + auto-converge poller + enhanced abort cleanup + first real end-to-end test colony ✓ | ✓ closes v2.24.0's 3 named scope deferrals → 9/10 honest (production-colony evidence is still operator-bound) |
 | 7 | v3.0.0–v3.0.2 | Multi-host fencing — graduates v2.x → v3.x | Hard-dep sequential, no parallel ship |
 | 8 | v3.1.0–v3.1.2 | Quality from learning: retrospective-driven matrix tuning | Requires n≥10 production colonies |
 
