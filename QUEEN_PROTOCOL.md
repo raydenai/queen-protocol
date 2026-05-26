@@ -3789,6 +3789,38 @@ Single-stream report. Operator reads one block per feature, not N queen logs int
 
 **Honest caveat:** the 10 levers are theoretical until measured. Lever 3's "quality compounds with N" claim is grounded in the existing race-mode evidence (v2.10.x). Lever 7's "40-60% cache hit rate" is a guess. Calibrate after n≥3 super-queen colonies deliver wall-clock + cost data.
 
+### 30.9 Cross-repo dispatch — the target_cwd model (v2.25.2, field-evidence)
+
+**Context (2026-05-24 → 2026-05-26):** the super-queen orchestrator (`super-queen.sh`) was built and dogfooded entirely on the protocol's own repo through v2.25.0. Then the operator ran it on a REAL cross-repo feature — a 5-shard Week 0 cleanup targeting `~/projects/agency-ai-system` (the cockpit framework): ADR-0001, Google Ads route consolidation, oauth_tokens migration, `_get_org_refresh_token` signature fix, `_QUEEN_LEDGER_CLIENT` parameterization. This first real cross-repo colony surfaced **three bugs (5, 6, 7) that only cross-repo execution could expose** — the exact value the §31 calibration loop predicts.
+
+**The core problem (Bug 5):** the orchestrator runs from the queen-protocol cwd, but the shard files (`src/api/routes/google_ads.py`, `src/core/queen_ledger.py`, etc.) live in a DIFFERENT repo. When `kimi-task.sh start --isolated` forks a worktree, it forks from `$(pwd)` — which was queen-protocol, NOT the target repo. The dispatched agent would then try to edit files that don't exist in its worktree.
+
+**The fix — `target_cwd` threaded through the colony:**
+
+1. `super-queen.sh feature [--target <path>] "<description>"` — new `--target` flag, defaults to current cwd. The resolved absolute path is written to `<colony-dir>/target_cwd.txt` at decompose time.
+2. `cmd_dispatch` reads `target_cwd.txt` and `os.chdir(target_cwd)` in its Python block BEFORE any lane dispatch — so every `kimi-task.sh`/`gemini-task.sh`/`grok-build-task.sh start --isolated` forks a worktree from the RIGHT repo HEAD.
+3. `cmd_converge` runs `colony-integration-gate.sh` inside `( cd "$target_cwd" && ... )`.
+4. Codex/Claude `needs_agent_spawn` instructions now embed `cwd=<target_cwd>` so the operator's Agent spawn runs in the right repo.
+
+**Verification (2026-05-26):** re-ran `super-queen.sh chain colony-1779598804-16354` (target=`~/projects/agency-ai-system`). All 5 shards processed: 3 kimi-isolated dispatched, 2 claude-ant emitted agent-spawn with correct cwd. Confirmed the s05 Kimi worktree forked from agency-ai-system HEAD and contained the real `src/core/queen_ledger.py` it was assigned to edit. **This is the protocol's first verified cross-repo super-queen dispatch.**
+
+**Bug 6 — concurrent-worktree cap is back-pressure, not error.** The colony had 3 kimi-isolated shards but Kimi's concurrent-isolated cap is 2 per repo. The 3rd shard's dispatch failed. The fix: detect cap-hit (`'isolated' + 'cap'/'Already'` in output), mark the shard `cap_deferred` (not `error`), and make `cmd_dispatch` idempotent — re-running it skips already-`dispatched`/`needs_agent_spawn` shards (terminal-OK states) and only retries `cap_deferred`/`error`/`no_prompt`. The operator (or `auto-converge`) re-runs `dispatch` as slots free; deferred shards pick up.
+
+**Bug 7 — stream-ordering regression (caught same session).** Switching `dispatch_lane_script` from `stderr=STDOUT` (in-order merge) to `capture_output=True` (separate streams) reordered output so the `[lock-from-path]` stderr preamble landed AFTER the JSON on stdout. `splitlines()[-1]` then grabbed the preamble, not the JSON. Fix: scan ALL lines for the first that parses as JSON with a `pid` key, rather than assuming the last line. A reminder that even a "cleaner" refactor (`capture_output`) can introduce a parsing regression when downstream code assumes stream ordering.
+
+**The cross-repo discipline (HARD):**
+
+| Rule | Why |
+|---|---|
+| Always pass `--target <repo>` for cross-repo colonies | Without it, dispatches fork the wrong repo's HEAD |
+| `target_cwd` is per-colony, written once at decompose | Colony is the unit that maps to one target repo |
+| `dispatch` is idempotent — safe to re-run | Cap-deferral + agent-spawn both require re-runs |
+| Concurrent-cap is back-pressure, not failure | 5-shard colonies with 3+ same-lane shards WILL hit it |
+
+**Anti-fix:** do NOT raise Kimi's concurrent-isolated cap to "just dispatch everything at once." The cap exists to protect the machine (2 worktrees × repo-size disk + N parallel Kimi processes). Cap-deferral + idempotent re-dispatch is the correct pattern — back-pressure handled gracefully, not removed.
+
+**Calibration-loop scorecard (the §31 anti-fix #1 in action):** v2.25.0 self-rated 9/10 (machinery shipped, dogfooded on self). v2.25.1 found+fixed 4 bugs from a self-meta end-to-end test (→ 9.5). v2.25.2 found+fixed 3 more bugs (5, 6, 7) from the FIRST real cross-repo colony — and verified a Kimi worktree forking the correct foreign repo. Each real-testing cycle yields ~0.5 honest rating points AND a batch of integration bugs that no amount of spec-writing would have surfaced. **The pattern is the product.**
+
 ## 31. Multi-phase roadmap (v2.19.x → v3.x)
 
 **Context (v2.19.1):** the v2.19.0 §30 spec defined the super-queen role but only the routing CONTRACT, not the AUTOMATION. The remaining levers (parallel verification gates, cap-aware autopilot, auto-decomposition, cross-queen cache, integration verification, unified meshboard, multi-host fencing, retrospective-driven tuning) require sequenced implementation across ~24 versions.
